@@ -1,7 +1,8 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ShieldCheck, LogOut, Sun, Moon } from 'lucide-react';
-import { auth } from '../lib/firebase';
+import { auth, database } from '../lib/firebase';
+import { ref, onValue } from 'firebase/database';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { cn } from '../lib/utils';
@@ -12,6 +13,18 @@ export function Layout() {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
+  const [libraryStatus, setLibraryStatus] = useState<any>(null);
+
+  useEffect(() => {
+    const statusRef = ref(database, 'library_status');
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setLibraryStatus(data);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -29,29 +42,66 @@ export function Layout() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
+      <header className="flex items-center justify-between px-4 py-4 sm:px-8 sm:py-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
         <div className="flex items-center space-x-3">
           <Link to="/" className="group">
             <Logo />
           </Link>
         </div>
         
-        <div className="flex items-center space-x-4 md:space-x-6">
+        <div className="flex items-center space-x-2 sm:space-x-4">
           <button 
             onClick={toggleTheme}
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all shadow-sm"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all shadow-sm"
             aria-label="Toggle Theme"
           >
-            {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+            {theme === 'light' ? <Moon className="w-4 h-4 sm:w-5 sm:h-5" /> : <Sun className="w-4 h-4 sm:w-5 sm:h-5" />}
           </button>
 
-          <div className="hidden md:flex items-center bg-brand-green/10 dark:bg-brand-green/20 px-3 py-1.5 rounded-full border border-brand-green/20 dark:border-brand-green/30">
-            <span className="w-2 h-2 bg-brand-green rounded-full animate-pulse mr-2 shadow-[0_0_8px_var(--color-brand-green)]"></span>
-            <span className="text-brand-green dark:text-brand-green text-xs font-semibold uppercase tracking-wider">System Online</span>
-          </div>
-          <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-4 md:pl-6">
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-tighter">Central Library</p>
-            <p className="text-sm font-mono font-bold text-slate-700 dark:text-slate-200">{timeStr}</p>
+          {(() => {
+            // 1. Safely grab the heartbeat from your Firebase state
+            const heartbeat = libraryStatus?.last_heartbeat;
+            
+            // 2. Check if it exists AND if it is less than 65 seconds old
+            const isOnline = heartbeat 
+              ? (Date.now() - heartbeat < 65000) 
+              : false;
+
+            // 3. Render the correct color and text with existing styled badge matching our theme
+            return (
+              <div className={cn(
+                "flex items-center px-1.5 py-1 sm:px-3 sm:py-1.5 rounded-full border transition-all duration-300",
+                isOnline 
+                  ? "bg-brand-green/10 border-brand-green/30 text-brand-green dark:bg-brand-green/20 dark:border-brand-green/30" 
+                  : "bg-red-500/10 border-red-500/30 text-red-500 dark:bg-red-950/25 dark:border-red-900/30"
+              )}>
+                <span className={cn(
+                  "w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1 sm:mr-2 shrink-0",
+                  isOnline 
+                    ? "bg-brand-green animate-pulse shadow-[0_0_8px_var(--color-brand-green)]" 
+                    : "bg-red-500"
+                )}></span>
+                <span className="text-[9px] sm:text-xs font-semibold uppercase tracking-wider">
+                  {isOnline ? "Online" : "Offline"}
+                </span>
+              </div>
+            );
+          })()}
+
+          {user && (
+            <button 
+              onClick={() => auth.signOut()}
+              className="p-1.5 sm:p-2 rounded-xl bg-red-550/10 dark:bg-red-950/25 border border-red-100 dark:border-red-900/35 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all shadow-sm flex items-center justify-center font-bold text-[9px] sm:text-[10px] uppercase tracking-wider px-2 py-1 sm:px-3 sm:py-1.5 cursor-pointer"
+              title="Logout"
+            >
+              <LogOut className="w-3.5 h-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          )}
+
+          <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-2 sm:pl-4">
+            <p className="hidden xs:block text-[8px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-tighter">Central Library</p>
+            <p className="text-[10px] sm:text-sm font-mono font-bold text-slate-700 dark:text-slate-200">{timeStr}</p>
           </div>
         </div>
       </header>
