@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from 'firebase/auth';
 import { ref, onValue, set, push, remove, update, get } from 'firebase/database';
 import { auth, database } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -139,6 +139,7 @@ export function Dashboard() {
   const [studentPassword, setStudentPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   
   // SeatIdle IoT Access Terminal emulator state
@@ -149,6 +150,11 @@ export function Dashboard() {
   
   const ALLOWED_ADMINS = ['admin@seatidle.com'];
   const isAdmin = user && ALLOWED_ADMINS.includes(user.email || '');
+
+  useEffect(() => {
+    setAuthError(null);
+    setResetSent(false);
+  }, [authMode, showAuth]);
 
   // Tab & search configuration
   const [dashboardTab, setDashboardTab] = useState<'live' | 'reserve' | 'staff' | 'notices'>('live');
@@ -498,6 +504,25 @@ export function Dashboard() {
       setShowAuth(false);
     } catch (err: any) {
       setAuthError(err.message || 'Google Login failed');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!studentEmail.trim()) {
+      setAuthError("Please input your email address in the credential field above first to send a password reset code.");
+      return;
+    }
+    setIsAuthenticating(true);
+    setAuthError(null);
+    setResetSent(false);
+    const email = studentEmail.toLowerCase() === 'admin' ? 'admin@seatidle.com' : studentEmail;
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+    } catch (err: any) {
+      setAuthError(err.message || 'Could not dispatch password reset email. Please try again.');
     } finally {
       setIsAuthenticating(false);
     }
@@ -854,13 +879,34 @@ export function Dashboard() {
                               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                               <input 
                                 type="password" 
-                                required
+                                required={authMode === 'login'}
                                 value={studentPassword}
                                 onChange={(e) => setStudentPassword(e.target.value)}
                                 placeholder="Password"
                                 className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-base md:text-xs placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-brand-green/50 transition-all font-medium text-white"
                               />
                             </div>
+                            {authMode === 'login' && (
+                              <div className="flex justify-end px-1 mt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={handleForgotPassword}
+                                  className="text-[9px] font-black text-brand-green hover:text-brand-green/85 cursor-pointer select-none transition-colors uppercase tracking-widest"
+                                  title="Reset password of the entered email via inbox"
+                                >
+                                  Forgot Password?
+                                </button>
+                              </div>
+                            )}
+                            {resetSent && (
+                              <motion.p 
+                                initial={{ opacity: 0, y: -5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="text-emerald-400 text-[9px] font-black uppercase tracking-widest bg-emerald-400/10 py-2.5 rounded-lg border border-emerald-400/20 px-3 text-center leading-relaxed"
+                              >
+                                Reset link dispatched! Check your inbox.
+                              </motion.p>
+                            )}
                             {authError && (
                               <motion.p 
                                 initial={{ opacity: 0, x: -10 }}
