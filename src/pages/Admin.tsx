@@ -755,10 +755,10 @@ export function Admin() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="grid grid-cols-1 xl:grid-cols-12 gap-8"
+                className="flex flex-col gap-8"
               >
                 {/* Capacity Control Column */}
-                <div className="xl:col-span-4 flex flex-col space-y-8 transition-colors">
+                <div className="w-full flex flex-col space-y-8 transition-colors">
                   <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
                     <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-8 flex items-center">
                       <SlidersHorizontal className="w-5 h-5 mr-3 text-brand-green" />
@@ -806,7 +806,7 @@ export function Admin() {
                 </div>
 
                 {/* Reservations Table Column */}
-                <div className="xl:col-span-8">
+                <div className="w-full">
                   <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
                     <div className="p-8 pb-4">
                       <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center">
@@ -933,10 +933,10 @@ export function Admin() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="grid grid-cols-1 xl:grid-cols-12 gap-8"
+                className="flex flex-col gap-8"
               >
                 {/* Register Staff Section */}
-                <div className="xl:col-span-4 flex flex-col space-y-8 transition-colors">
+                <div className="w-full flex flex-col space-y-8 transition-colors">
                   <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
                     <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-6 flex items-center">
                       <Plus className="w-4 h-4 mr-2 text-brand-green" />
@@ -1021,7 +1021,7 @@ export function Admin() {
                 </div>
 
                 {/* Staff Table */}
-                <div className="xl:col-span-8">
+                <div className="w-full">
                   <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden h-full flex flex-col transition-colors">
                     <div className="p-8 pb-4">
                       <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center font-black">
