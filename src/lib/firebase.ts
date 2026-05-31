@@ -1,20 +1,204 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getDatabase } from 'firebase/database';
-
-const firebaseConfig = {
-  apiKey: "AIzaSyA4jefMyJblCxlrI6A1GUeAXvsHlBcI93Q",
-  authDomain: "seatidle.firebaseapp.com",
-  projectId: "seatidle",
-  storageBucket: "seatidle.firebasestorage.app",
-  messagingSenderId: "237670859440",
-  appId: "1:237670859440:web:2cc7b783913fb2a3e4f175",
-  measurementId: "G-0NH5LP7TQ6",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://seatidle-default-rtdb.asia-southeast1.firebasedatabase.app"
-};
+import {
+  getFirestore,
+  doc,
+  collection,
+  setDoc,
+  addDoc,
+  deleteDoc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  writeBatch
+} from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const database = getDatabase(app);
+
+// Realistic Database Emulator/Adapter using Cloud Firestore
+export const database = { type: 'firestore_adapter' };
+
+// We define Snapshot subclass
+class DataSnapshot {
+  constructor(
+    public key: string | null,
+    private data: any
+  ) {}
+
+  exists() {
+    return this.data !== null && this.data !== undefined;
+  }
+
+  val() {
+    return this.data;
+  }
+}
+
+// Helper to normalize path
+function parsePath(pathString: string) {
+  const cleanPath = (pathString || '').replace(/^\/+|\/+$/g, '');
+  if (!cleanPath || cleanPath === '') {
+    return { type: 'root' as const, path: '' };
+  }
+
+  const parts = cleanPath.split('/');
+  
+  if (parts[0] === 'library_status') {
+    if (parts.length === 1) {
+      return { type: 'doc' as const, col: 'library_status', docId: 'current', path: 'library_status/current' };
+    }
+  }
+
+  if (parts.length % 2 === 1) {
+    return { type: 'col' as const, colPath: cleanPath, path: cleanPath };
+  } else {
+    const docId = parts.pop()!;
+    const colPath = parts.join('/');
+    return { type: 'doc' as const, col: colPath, docId, path: `${colPath}/${docId}` };
+  }
+}
+
+export function ref(dbVar: any, path: string) {
+  return {
+    _isRef: true,
+    path: path || ''
+  };
+}
+
+export async function get(dbRef: any) {
+  const parsed = parsePath(dbRef.path);
+  if (parsed.type === 'doc') {
+    const docRef = doc(db, parsed.col, parsed.docId);
+    const snap = await getDoc(docRef);
+    const val = snap.exists() ? snap.data() : null;
+    return new DataSnapshot(parsed.docId, val);
+  } else if (parsed.type === 'col') {
+    const colRef = collection(db, parsed.colPath);
+    const querySnapshot = await getDocs(colRef);
+    const data: Record<string, any> = {};
+    querySnapshot.forEach(docSnap => {
+      data[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+    });
+    return new DataSnapshot(parsed.colPath.split('/').pop() || null, Object.keys(data).length > 0 ? data : null);
+  }
+  return new DataSnapshot(null, null);
+}
+
+export function onValue(
+  dbRef: any,
+  callback: (snapshot: DataSnapshot) => void,
+  cancelCallback?: (error: any) => void
+) {
+  const parsed = parsePath(dbRef.path);
+  if (parsed.type === 'doc') {
+    const docRef = doc(db, parsed.col, parsed.docId);
+    return onSnapshot(
+      docRef,
+      (snap) => {
+        const val = snap.exists() ? snap.data() : null;
+        callback(new DataSnapshot(parsed.docId, val));
+      },
+      (error) => {
+        if (cancelCallback) cancelCallback(error);
+      }
+    );
+  } else if (parsed.type === 'col') {
+    const colRef = collection(db, parsed.colPath);
+    return onSnapshot(
+      colRef,
+      (querySnapshot) => {
+        const data: Record<string, any> = {};
+        querySnapshot.forEach(docSnap => {
+          data[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+        });
+        callback(new DataSnapshot(parsed.colPath.split('/').pop() || null, Object.keys(data).length > 0 ? data : null));
+      },
+      (error) => {
+        if (cancelCallback) cancelCallback(error);
+      }
+    );
+  }
+  return () => {};
+}
+
+export async function set(dbRef: any, data: any) {
+  const parsed = parsePath(dbRef.path);
+  if (parsed.type === 'doc') {
+    const docRef = doc(db, parsed.col, parsed.docId);
+    await setDoc(docRef, data || {});
+  } else if (parsed.type === 'col') {
+    const colRef = collection(db, parsed.colPath);
+    if (data && typeof data === 'object') {
+      for (const [key, val] of Object.entries(data)) {
+        await setDoc(doc(colRef, key), val as any);
+      }
+    }
+  }
+}
+
+export async function update(dbRef: any, data: any) {
+  const parsed = parsePath(dbRef.path);
+  if (parsed.type === 'doc') {
+    const docRef = doc(db, parsed.col, parsed.docId);
+    await setDoc(docRef, data || {}, { merge: true });
+  } else if (parsed.type === 'col') {
+    if (data && typeof data === 'object') {
+      for (const [key, val] of Object.entries(data)) {
+        if (val && typeof val === 'object') {
+          await setDoc(doc(db, parsed.colPath, key), val, { merge: true });
+        }
+      }
+    }
+  }
+}
+
+export async function push(dbRef: any, data: any) {
+  const parsed = parsePath(dbRef.path);
+  if (parsed.type === 'col') {
+    const colRef = collection(db, parsed.colPath);
+    const newDocRef = await addDoc(colRef, data || {});
+    return {
+      _isRef: true,
+      key: newDocRef.id,
+      path: `${parsed.colPath}/${newDocRef.id}`
+    };
+  }
+  return { _isRef: true, key: '', path: '' };
+}
+
+export async function remove(dbRef: any) {
+  const parsed = parsePath(dbRef.path);
+  if (parsed.type === 'doc') {
+    const docRef = doc(db, parsed.col, parsed.docId);
+    await deleteDoc(docRef);
+  } else if (parsed.type === 'col') {
+    const colRef = collection(db, parsed.colPath);
+    const querySnapshot = await getDocs(colRef);
+    const batch = writeBatch(db);
+    querySnapshot.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+    await batch.commit();
+  } else if (parsed.type === 'root') {
+    const collectionsToWipe = [
+      'library_status',
+      'staff_presence',
+      'active_reservations',
+      'scheduled_reservations',
+      'announcements',
+      'occupancy_history'
+    ];
+    for (const colName of collectionsToWipe) {
+      const colRef = collection(db, colName);
+      const querySnapshot = await getDocs(colRef);
+      const batch = writeBatch(db);
+      querySnapshot.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      await batch.commit();
+    }
+  }
+}

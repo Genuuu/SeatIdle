@@ -1,8 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ShieldCheck, LogOut, Sun, Moon } from 'lucide-react';
-import { auth, database } from '../lib/firebase';
-import { ref, onValue } from 'firebase/database';
+import { auth, database, ref, onValue } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { cn } from '../lib/utils';

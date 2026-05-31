@@ -44,9 +44,25 @@
       "schema": "StaffPresence",
       "description": "Collection of staff members and their presence."
     },
+    "staff_presence/{staffId}/logs/{logId}": {
+      "schema": "object",
+      "description": "Historical log entries for individual staff presence transitions."
+    },
     "active_reservations/{reservationId}": {
       "schema": "ActiveReservation",
       "description": "Collection of active student reservations."
+    },
+    "scheduled_reservations/{reservationId}": {
+      "schema": "ActiveReservation",
+      "description": "Collection of future/scheduled student reservations."
+    },
+    "announcements/{announcementId}": {
+      "schema": "object",
+      "description": "Collection of announcements published by the library staff."
+    },
+    "occupancy_history/{historyId}": {
+      "schema": "object",
+      "description": "Collection of library occupancies logged at various timestamp milestones."
     }
   }
 }

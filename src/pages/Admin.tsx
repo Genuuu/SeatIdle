@@ -1,8 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from 'firebase/auth';
-import { ref, onValue, set, push, remove, update, get } from 'firebase/database';
-import { auth, database } from '../lib/firebase';
+import { auth, database, ref, onValue, set, push, remove, update, get } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Users, Calendar, Plus, Trash2, LogIn, Lock, LogOut, Mail, Save, AlertTriangle, TrendingUp, BarChart3, PieChart, X, Clock, Phone, SlidersHorizontal, Bell } from 'lucide-react';

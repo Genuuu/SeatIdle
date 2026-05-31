@@ -1,7 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from 'firebase/auth';
-import { ref, onValue, set, push, remove, update, get } from 'firebase/database';
-import { auth, database } from '../lib/firebase';
+import { auth, database, ref, onValue, set, push, remove, update, get } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -553,19 +552,35 @@ export function Dashboard() {
     if (i < 6) {
       zone = 'Silence Zone A';
       description = 'Designated for deep concentration and silent study. No group discussions, video calls, or food are allowed.';
-      guidelines = ['Always keep phones on silent mode', 'No whispering or collaborative talking', 'Beverages with lids only'];
+      guidelines = [
+        'Maintain absolute silence at all times. Whisper only at the service counters.',
+        'No food, inkwells, or open liquids of any kind are permitted within this room.',
+        'Always keep personal cellular devices completely silent or turned off.'
+      ];
     } else if (i < 12) {
       zone = 'Reference Reading Wing B';
       description = 'Perfect for reading journals, texts, and archive work with generous reading tables and natural lighting.';
-      guidelines = ['Quiet pages flipping policy', 'No laptop audio output', 'Return reference books to the counter bin'];
+      guidelines = [
+        'Do not deface, fold, mark, or scribble in library books or periodicals.',
+        'Return reference books to the designated counter bin or return cart upon finishing.',
+        'Turn pages gently and avoid wetting fingers to turn leaves.'
+      ];
     } else if (i < 18) {
       zone = 'STEM Technical Bay C';
       description = 'Equipped with dedicated Ethernet lines, high-density power ports, and workspace table sizes for hardware.';
-      guidelines = ['Power strip adapters available at help desk', 'Laptop/hardware testing allowed', 'Recycle discarded wires'];
+      guidelines = [
+        'Bags, coats, and outdoor containers must be deposited in the cloakroom.',
+        'No portable electric heating devices or unapproved hardware are permitted on reading tables.',
+        'All wires, cables, and scientific apparatus must be kept neat and free from causing obstruction.'
+      ];
     } else {
       zone = 'Collaborative Hub D';
       description = 'A dynamic sharing zone meant for team project discussions, peer review sessions, and active whiteboard tutoring.';
-      guidelines = ['Low-volume active speaking encouraged', 'Whiteboard markers provided', 'Maximum 2 hours per team group block'];
+      guidelines = [
+        'Conversations must be restricted to low, quiet tones so as not to disturb adjacent readers.',
+        'Leave tables and chairs in their original stations; do not rearrange library furniture.',
+        'Scribble only on the provided boards and clean them completely after use.'
+      ];
     }
 
     return {
@@ -645,10 +660,10 @@ export function Dashboard() {
           <div className="bg-slate-100/40 dark:bg-slate-900/40 rounded-[24px] border border-slate-200/45 dark:border-slate-800/60 p-5 select-none text-left">
             <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
               <VolumeX className="w-3.5 h-3.5" />
-              <span className="text-[9px] font-black uppercase tracking-widest font-mono">Study Guidelines</span>
+              <span className="text-[9px] font-black uppercase tracking-widest font-mono">Library Regulations</span>
             </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-relaxed mt-2">
-              Scan RFID card on the SeatIdle hardware unit to check-in. Autocancel triggers if unused for 15 minutes.
+              A standard of perfect quietness and silence is expected from readers in all rooms. Books must not be defaced, and visitors must preserve order at all times.
             </p>
             <div className="mt-4 pt-3 border-t border-slate-250/25 dark:border-slate-800/60 flex items-center justify-between text-[8px] font-bold text-slate-400 font-mono">
               <span>SeatIdle IoT</span>
@@ -671,11 +686,8 @@ export function Dashboard() {
                   <span className="w-2 h-2 rounded-full bg-brand-green animate-pulse"></span>
                 </div>
                 <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-800 dark:text-white tracking-tight">
-                  SeatIdle Resource Command
+                  SeatIdle Dashboard
                 </h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  Real-time attendance intelligence, RFID desk matrix scheduling & notices dashboard.
-                </p>
               </div>
             </div>
 
@@ -1029,8 +1041,8 @@ export function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-slate-800/80">
                     <div>
-                      <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider">My Dynamic Tickets</h3>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium select-none">Manage active RFID scheduling credentials</p>
+                      <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider">My Bookings</h3>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium select-none">Manage active bookings</p>
                     </div>
                     {user && (
                       <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-black uppercase">
@@ -1298,7 +1310,7 @@ export function Dashboard() {
                   <div className="col-span-full py-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-850 rounded-2xl bg-slate-50/20">
                     <Users className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
                     <p className="text-xs text-slate-400 dark:text-slate-500 font-black uppercase tracking-widest select-none">No Helpers Found</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 select-none">Try broadening your helper name search guidelines.</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 select-none">Try broadening your helper name search terms or parameters.</p>
                   </div>
                 )}
               </div>
@@ -1321,7 +1333,7 @@ export function Dashboard() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Filter bulletins..."
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-850 pl-09 pr-4 py-2 rounded-xl text-base md:text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-semibold shadow-inner"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-850 pl-9 pr-4 py-2 rounded-xl text-base md:text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-semibold shadow-inner"
                   />
                 </div>
               </div>
@@ -1367,7 +1379,7 @@ export function Dashboard() {
                   <div className="py-12 text-center border-2 border-dashed border-slate-150 dark:border-slate-850 rounded-2xl bg-slate-50/10">
                     <Megaphone className="w-8 h-8 text-slate-350 dark:text-slate-750 mx-auto mb-2" />
                     <p className="text-sm text-slate-400 dark:text-slate-500 font-black uppercase tracking-widest select-none">No Notices Published</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-550 mt-1 select-none">Check back later for RFID scheduled guidelines.</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-550 mt-1 select-none">Check back later for official library announcements and notices.</p>
                   </div>
                 )}
               </div>
