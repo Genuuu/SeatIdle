@@ -56,7 +56,7 @@ interface Reservation {
 export function Admin() {
   const { user, loading } = useAuth();
   
-  const ALLOWED_ADMINS = ['admin@seatidle.com'];
+  const ALLOWED_ADMINS = ['admin@seatidle.com', 'genukakisara@gmail.com'];
   const isAdmin = user && ALLOWED_ADMINS.includes(user.email || '');
 
   // Auth Form State
@@ -282,7 +282,7 @@ export function Admin() {
       const user = result.user;
       
       // Gatekeeper logic
-      const ALLOWED_ADMINS = ['admin@seatidle.com'];
+      const ALLOWED_ADMINS = ['admin@seatidle.com', 'genukakisara@gmail.com'];
       if (!ALLOWED_ADMINS.includes(user.email || '')) {
         setAuthError('Access Denied: You do not have administrator privileges.');
         await auth.signOut();

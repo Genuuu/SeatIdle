@@ -147,7 +147,7 @@ export function Dashboard() {
   const [terminalMessage, setTerminalMessage] = useState('');
   const [gateUnlocked, setGateUnlocked] = useState(false);
   
-  const ALLOWED_ADMINS = ['admin@seatidle.com'];
+  const ALLOWED_ADMINS = ['admin@seatidle.com', 'genukakisara@gmail.com'];
   const isAdmin = user && ALLOWED_ADMINS.includes(user.email || '');
 
   useEffect(() => {
