@@ -7,7 +7,7 @@ service cloud.firestore {
     }
 
     // Library Status: Anyone can read & write (supports hardware simulator updates)
-    match /library_status/current {
+    match /library_status/{docId} {
       allow read, write: if true;
     }
 

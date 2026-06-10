@@ -116,6 +116,8 @@ export function Admin() {
   const [editStaffPhone, setEditStaffPhone] = useState('');
 
   const [announcementText, setAnnouncementText] = useState('');
+  const [announcementError, setAnnouncementError] = useState<string | null>(null);
+  const [announcementSuccess, setAnnouncementSuccess] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<'capacity' | 'staff' | 'notices' | 'reports'>('capacity');
   const [confirmingStaffId, setConfirmingStaffId] = useState<string | null>(null);
@@ -515,6 +517,8 @@ export function Admin() {
   const addAnnouncement = async () => {
     if (!announcementText.trim()) return;
     setIsAddingAnnouncement(true);
+    setAnnouncementError(null);
+    setAnnouncementSuccess(false);
     try {
       const annRef = ref(database, 'announcements');
       await push(annRef, {
@@ -522,8 +526,20 @@ export function Admin() {
         createdAt: new Date().toISOString()
       });
       setAnnouncementText('');
-    } catch (err) {
+      setAnnouncementSuccess(true);
+      setTimeout(() => {
+        setAnnouncementSuccess(false);
+      }, 3000);
+    } catch (err: any) {
       console.error("Add announcement error:", err);
+      let errMsg = err.message || String(err);
+      try {
+        const parsedErr = JSON.parse(errMsg);
+        if (parsedErr && parsedErr.error) {
+          errMsg = parsedErr.error;
+        }
+      } catch (_) {}
+      setAnnouncementError(errMsg);
     } finally {
       setIsAddingAnnouncement(false);
     }
@@ -1156,17 +1172,30 @@ export function Admin() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="grid grid-cols-1 xl:grid-cols-12 gap-8"
+                className="flex flex-col gap-8"
               >
                 {/* Post Announcement Section */}
-                <div className="xl:col-span-5 flex flex-col space-y-8">
+                <div className="w-full flex flex-col space-y-8">
                   <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
                     <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-6 flex items-center">
                       <Mail className="w-4 h-4 mr-2 text-brand-green" />
                       Post Announcement
                     </h3>
                     <div className="space-y-4">
+                      {announcementSuccess && (
+                        <div id="announcement-success-banner" className="p-4 bg-emerald-500/10 text-emerald-650 dark:text-emerald-400 text-xs font-bold rounded-2xl border border-emerald-500/20 shadow-sm animate-fade-in flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2 animate-ping" />
+                          Notice published successfully!
+                        </div>
+                      )}
+                      {announcementError && (
+                        <div id="announcement-error-banner" className="p-4 bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-medium rounded-2xl border border-red-500/20 shadow-sm animate-fade-in">
+                          <p className="font-bold uppercase tracking-wider text-[10px] text-red-500 mb-0.5">Posting Failed</p>
+                          <p>{announcementError}</p>
+                        </div>
+                      )}
                       <textarea 
+                        id="notices-announcement-textarea"
                         rows={4}
                         placeholder="Type important notice for students..."
                         value={announcementText}
@@ -1174,6 +1203,7 @@ export function Admin() {
                         className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all resize-none"
                       />
                       <button 
+                        id="notices-post-button"
                         onClick={addAnnouncement}
                         disabled={isAddingAnnouncement}
                         className="w-full bg-brand-blue/5 dark:bg-brand-blue/30 text-brand-blue dark:text-brand-green py-3 rounded-2xl font-black text-xs hover:bg-brand-blue hover:text-white transition-all disabled:opacity-50 flex items-center justify-center uppercase tracking-widest cursor-pointer"
@@ -1204,7 +1234,7 @@ export function Admin() {
                 </div>
 
                 {/* Notices Live Preview Simulator */}
-                <div className="xl:col-span-7">
+                <div className="w-full">
                   <section className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 p-8 shadow-sm h-full flex flex-col justify-between transition-colors">
                     <div className="space-y-6">
                       <div className="flex items-center justify-between pb-2">

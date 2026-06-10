@@ -1,10 +1,10 @@
 {
   "projectId": "seatidle",
-  "appId": "1:237670859440:web:2cc7b783913fb2a3e4f175",
-  "apiKey": "AIzaSyA4jefMyJblCxlrI6A1GUeAXvsHlBcI93Q",
+  "appId": "1:237670859440:web:d433248e5bdbf628e4f175",
+  "apiKey": "AIzaSyBk3BIR_LkgwkIhnAG4eU24b5_V5lASb0c",
   "authDomain": "seatidle.firebaseapp.com",
-  "databaseURL": "https://seatidle-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "firestoreDatabaseId": "ai-studio-0a5338c9-86ff-4a1d-9e29-aa46580b9e9d",
   "storageBucket": "seatidle.firebasestorage.app",
   "messagingSenderId": "237670859440",
-  "measurementId": "G-0NH5LP7TQ6"
+  "measurementId": ""
 }

@@ -923,7 +923,7 @@ export function Dashboard() {
                               <motion.p 
                                 initial={{ opacity: 0, x: -10 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                className="text-red-400 text-[9px] font-black uppercase tracking-widest bg-red-400/10 py-1.5 rounded-lg"
+                                className="text-red-400 text-[9px] font-black uppercase tracking-widest bg-red-400/10 py-2.5 rounded-xl border border-red-500/15 text-center px-3"
                               >
                                 {authError}
                               </motion.p>
