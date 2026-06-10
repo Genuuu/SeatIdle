@@ -4,7 +4,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthP
 import { auth, database, ref, onValue, set, push, remove, update, get } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Users, Calendar, Plus, Trash2, LogIn, Lock, LogOut, Mail, Save, AlertTriangle, TrendingUp, BarChart3, PieChart, X, Clock, Phone, SlidersHorizontal, Bell } from 'lucide-react';
+import { Settings, Users, Calendar, Plus, Trash2, LogIn, Lock, LogOut, Mail, Save, AlertTriangle, TrendingUp, BarChart3, PieChart, X, Clock, Phone, SlidersHorizontal, Bell, Download, Info, User, Monitor, Search, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Loader } from '../components/ui/Loader';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
@@ -31,6 +31,12 @@ interface Staff {
     timestamp: string;
     status: 'IN' | 'OUT';
     method?: string;
+  }>;
+  portal_logins?: Record<string, {
+    timestamp: string;
+    email: string;
+    userAgent: string;
+    platform: string;
   }>;
 }
 
@@ -108,6 +114,7 @@ export function Admin() {
 
   // Selected Staff inspection and edit states
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
+  const [inspectorTab, setInspectorTab] = useState<'profile' | 'presence' | 'logins' | 'analytics'>('profile');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editStaffName, setEditStaffName] = useState('');
   const [editStaffRole, setEditStaffRole] = useState('');
@@ -123,11 +130,200 @@ export function Admin() {
   const [confirmingStaffId, setConfirmingStaffId] = useState<string | null>(null);
   const [confirmingReservationId, setConfirmingReservationId] = useState<string | null>(null);
 
+  // Staff Sub-tab Attendance Register states
+  const [staffSubTab, setStaffSubTab] = useState<'list' | 'register'>('list');
+  const [registerSearch, setRegisterSearch] = useState('');
+  const [selectedFilterDate, setSelectedFilterDate] = useState(() => {
+    try {
+      const colomboDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+      if (colomboDate && colomboDate.length === 10 && colomboDate.includes('-')) {
+        return colomboDate;
+      }
+    } catch (e) {}
+    return new Date().toISOString().split('T')[0];
+  });
+
+  const getColomboDateString = (isoString?: string) => {
+    if (!isoString) return '';
+    try {
+      return new Date(isoString).toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    } catch (e) {
+      try {
+        return new Date(isoString).toISOString().split('T')[0];
+      } catch (err) {
+        return '';
+      }
+    }
+  };
+
+  const formatDuration = (ms: number) => {
+    if (!ms || ms < 0) return '0 min';
+    const mins = Math.floor(ms / (1000 * 60));
+    if (mins < 60) return `${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    return `${hrs}h ${remainingMins}m`;
+  };
+
   // Loading States
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [isAddingAnnouncement, setIsAddingAnnouncement] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
+  const [rawHistoryData, setRawHistoryData] = useState<any[]>([]);
+
+  // Analytics for selected staff
+  const { totalShiftCount, totalHours, avgHoursPerShift, dayData, portalLoginsEntries, totalPortalLogins, parsedLogEntries, handleExportCSV, parseUserAgent } = (() => {
+    if (!selectedStaff) {
+      return {
+        totalShiftCount: 0,
+        totalHours: 0,
+        avgHoursPerShift: 0,
+        dayData: [],
+        portalLoginsEntries: [],
+        totalPortalLogins: 0,
+        parsedLogEntries: [],
+        handleExportCSV: () => {},
+        parseUserAgent: (ua: string) => ({ browser: 'Unknown', os: 'Device' })
+      };
+    }
+
+    const parseUserAgent = (ua: string) => {
+      if (!ua) return { browser: 'Unknown', os: 'Device' };
+      let browser = 'Other Browser';
+      let os = 'Unknown Device';
+      
+      const lowercaseUa = ua.toLowerCase();
+      if (lowercaseUa.includes('chrome')) browser = 'Google Chrome';
+      else if (lowercaseUa.includes('safari') && !lowercaseUa.includes('chrome')) browser = 'Apple Safari';
+      else if (lowercaseUa.includes('firefox')) browser = 'Mozilla Firefox';
+      else if (lowercaseUa.includes('edge')) browser = 'Microsoft Edge';
+      
+      if (lowercaseUa.includes('windows')) os = 'Windows PC';
+      else if (lowercaseUa.includes('macintosh') || lowercaseUa.includes('mac os')) os = 'macOS';
+      else if (lowercaseUa.includes('iphone') || lowercaseUa.includes('ipad')) os = 'iOS Device';
+      else if (lowercaseUa.includes('android')) os = 'Android Device';
+      else if (lowercaseUa.includes('linux')) os = 'Linux OS';
+      
+      return { browser, os };
+    };
+
+    const parsedLogEntries = selectedStaff.logs 
+      ? Object.entries(selectedStaff.logs)
+          .map(([k, v]: [string, any]) => ({ id: k, ...v }))
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      : [];
+
+    const computedShifts: Array<{ checkIn: Date; checkOut: Date | null; durationMs: number }> = [];
+    let currentIn: any = null;
+
+    parsedLogEntries.forEach(log => {
+      if (log.status === 'IN') {
+        currentIn = log;
+      } else if (log.status === 'OUT' && currentIn) {
+        const start = new Date(currentIn.timestamp);
+        const end = new Date(log.timestamp);
+        computedShifts.push({
+          checkIn: start,
+          checkOut: end,
+          durationMs: end.getTime() - start.getTime()
+        });
+        currentIn = null;
+      }
+    });
+    if (selectedStaff.is_present && currentIn) {
+      computedShifts.push({
+        checkIn: new Date(currentIn.timestamp),
+        checkOut: null,
+        durationMs: Date.now() - new Date(currentIn.timestamp).getTime()
+      });
+    }
+
+    const totalShiftCount = computedShifts.length;
+    const totalDurationMs = computedShifts.reduce((sum, s) => sum + s.durationMs, 0);
+    const totalHours = Number((totalDurationMs / (1000 * 60 * 60)).toFixed(1));
+    const avgHoursPerShift = totalShiftCount > 0 ? Number((totalHours / totalShiftCount).toFixed(1)) : 0;
+
+    const dayAbbreviations = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayData = dayAbbreviations.map((abbr, idx) => ({
+      name: abbr,
+      Hours: 0,
+      Shifts: 0
+    }));
+
+    computedShifts.forEach(s => {
+      const dayIdx = s.checkIn.getDay();
+      const hrs = s.durationMs / (1000 * 60 * 60);
+      dayData[dayIdx].Hours += Number(hrs.toFixed(1));
+      dayData[dayIdx].Shifts += 1;
+    });
+
+    const portalLoginsEntries = selectedStaff.portal_logins
+      ? Object.entries(selectedStaff.portal_logins)
+          .map(([k, v]: [string, any]) => ({ id: k, ...v }))
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      : [];
+
+    const totalPortalLogins = portalLoginsEntries.length;
+
+    const handleExportCSV = () => {
+      let csvContent = "data:text/csv;charset=utf-8,";
+      csvContent += "STAFF INDIVIDUAL ATTENDANCE & LOGS REPORT\n";
+      csvContent += `Name,${selectedStaff.name}\n`;
+      csvContent += `RFID Card UID,${selectedStaff.id}\n`;
+      csvContent += `Role,${selectedStaff.role || 'Staff Member'}\n`;
+      csvContent += `Department,${selectedStaff.department || 'General'}\n`;
+      csvContent += `Email,${selectedStaff.email || 'N/A'}\n\n`;
+      
+      csvContent += "--- METRICS SECTION ---\n";
+      csvContent += `Total Completed Shifts,${totalShiftCount}\n`;
+      csvContent += `Total Hours Swiped,${totalHours} hours\n`;
+      csvContent += `Average Hours Per Shift,${avgHoursPerShift} hours\n`;
+      csvContent += `Total Portal Login Sessions,${totalPortalLogins}\n\n`;
+      
+      csvContent += "--- DETAILED RFID SWIPE LOGS ---\n";
+      csvContent += "Date,Time,Event Type,Method\n";
+      
+      const sortedSwipeForReport = [...parsedLogEntries].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      sortedSwipeForReport.forEach(log => {
+        const d = new Date(log.timestamp);
+        const dateFormatted = d.toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo' }).replace(/,/g, '');
+        const timeFormatted = d.toLocaleTimeString('en-LK', { timeZone: 'Asia/Colombo' }).replace(/,/g, '');
+        csvContent += `"${dateFormatted}","${timeFormatted}","${log.status === 'IN' ? 'CHECK-IN' : 'CHECK-OUT'}","${(log.method || 'RFID_SENSOR').replace(/_/g, ' ')}"\n`;
+      });
+      
+      csvContent += "\n--- DETAILED WEB PORTAL LOGINS ---\n";
+      csvContent += "Date,Time,Email,Browser,Platform\n";
+      
+      portalLoginsEntries.forEach(log => {
+        const d = new Date(log.timestamp);
+        const dateFormatted = d.toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo' }).replace(/,/g, '');
+        const timeFormatted = d.toLocaleTimeString('en-LK', { timeZone: 'Asia/Colombo' }).replace(/,/g, '');
+        const { browser, os } = parseUserAgent(log.userAgent || '');
+        csvContent += `"${dateFormatted}","${timeFormatted}","${log.email || 'N/A'}","${browser}","${os}"\n`;
+      });
+      
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `attendance_report_${selectedStaff.name.toLowerCase().replace(/\s+/g, '_')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    return {
+      totalShiftCount,
+      totalHours,
+      avgHoursPerShift,
+      dayData,
+      portalLoginsEntries,
+      totalPortalLogins,
+      parsedLogEntries,
+      handleExportCSV,
+      parseUserAgent
+    };
+  })();
 
   // Database Listeners
   useEffect(() => {
@@ -212,9 +408,11 @@ export function Admin() {
         .filter((item): item is any => item !== null)
         .sort((a, b) => new Date(a.fullDate).getTime() - new Date(b.fullDate).getTime());
         
-        // Take last 24 entries for a "recent" trend
+        // Set both raw and sliced trend data
+        setRawHistoryData(list);
         setHistoryData(list.slice(-24));
       } else {
+        setRawHistoryData([]);
         setHistoryData([]);
       }
     });
@@ -246,6 +444,33 @@ export function Admin() {
       localStorage.setItem('last_history_log', now.toString());
     }
   }, [status.occupancy, isAdmin]);
+
+  // Staff Portal Login Tracker inside Admin Panel
+  useEffect(() => {
+    if (user && user.email && staffList.length > 0) {
+      const matchingStaff = staffList.find(s => s.email?.toLowerCase() === user.email?.toLowerCase());
+      if (matchingStaff) {
+        const sessionKey = `logged_staff_${matchingStaff.id}`;
+        const parsedLastLogin = sessionStorage.getItem(sessionKey);
+        if (!parsedLastLogin) {
+          const timestamp = new Date().toISOString();
+          const browser = navigator.userAgent;
+          const portalLoginsRef = ref(database, `staff_presence/${matchingStaff.id}/portal_logins`);
+          push(portalLoginsRef, {
+            timestamp,
+            email: user.email,
+            userAgent: browser,
+            platform: navigator.platform || 'Unknown'
+          }).then(() => {
+            sessionStorage.setItem(sessionKey, timestamp);
+            console.log("Recorded staff admin portal login for:", matchingStaff.name);
+          }).catch(err => {
+            console.error("Failed to log admin portal login:", err);
+          });
+        }
+      }
+    }
+  }, [user, staffList]);
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -679,6 +904,78 @@ export function Admin() {
     );
   }
 
+  // Analytics & Historical Calculations
+  const peakOccupancyAllTime = rawHistoryData.length > 0 
+    ? Math.max(...rawHistoryData.map(h => h.occupancy)) 
+    : 0;
+
+  const averageOccupancyAllTime = rawHistoryData.length > 0
+    ? Math.round(rawHistoryData.reduce((acc, curr) => acc + curr.occupancy, 0) / rawHistoryData.length)
+    : 0;
+
+  // Calculate Hourly Distribution of occupancy over all-time history
+  const hourlyOccupancyDistribution = (() => {
+    const hourlyDataMap: Record<number, { total: number; count: number }> = {};
+    for (let i = 0; i < 24; i++) {
+      hourlyDataMap[i] = { total: 0, count: 0 };
+    }
+
+    rawHistoryData.forEach(item => {
+      if (!item.fullDate) return;
+      const date = new Date(item.fullDate);
+      const hour = date.getHours();
+      hourlyDataMap[hour].total += item.occupancy;
+      hourlyDataMap[hour].count += 1;
+    });
+
+    return Object.entries(hourlyDataMap).map(([hStr, data]) => {
+      const h = parseInt(hStr);
+      const avg = data.count > 0 ? Math.round(data.total / data.count) : 0;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const displayHour = h % 12 === 0 ? 12 : h % 12;
+      return {
+        hourNumber: h,
+        hourLabel: `${displayHour} ${ampm}`,
+        occupancy: avg,
+        samples: data.count
+      };
+    }).filter(item => item.samples > 0 || (item.hourNumber >= 8 && item.hourNumber <= 21)); // Show standard library operational hours
+  })();
+
+  // Predict peak time slot
+  const busiestPredictionObj = hourlyOccupancyDistribution.reduce((prev, current) => {
+    return (current.occupancy > prev.occupancy) ? current : prev;
+  }, { hourLabel: 'N/A', occupancy: 0, hourNumber: 0 });
+
+  const predictedPeakHour = busiestPredictionObj.occupancy > 0 ? busiestPredictionObj.hourLabel : 'N/A';
+
+  // Export historical dataset as CSV file download
+  const downloadHistoricalCSV = () => {
+    if (rawHistoryData.length === 0) {
+      alert("No historical occupancy logs found to export yet.");
+      return;
+    }
+    const headers = ['Date', 'Time', 'Occupancy (Students)'];
+    const csvContent = [
+      headers.join(','),
+      ...rawHistoryData.map(item => [
+        `"${new Date(item.fullDate).toLocaleDateString('en-LK')}"`,
+        `"${new Date(item.fullDate).toLocaleTimeString('en-LK')}"`,
+        item.occupancy
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `seatidle_occupancy_report_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto p-4 sm:p-5 md:p-8 space-y-6 md:space-y-8 pb-24 lg:pb-12">
       
@@ -949,220 +1246,711 @@ export function Admin() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="flex flex-col gap-8"
+                className="flex flex-col gap-6"
               >
-                {/* Register Staff Section */}
-                <div className="w-full flex flex-col space-y-8 transition-colors">
-                  <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
-                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-6 flex items-center">
-                      <Plus className="w-4 h-4 mr-2 text-brand-green" />
-                      Register Staff
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Staff Name</label>
-                          <input 
-                            type="text"
-                            placeholder="e.g., Dr. Silva"
-                            value={newStaffName}
-                            onChange={(e) => setNewStaffName(e.target.value)}
-                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">RFID Card UID (Hex)</label>
-                          <input 
-                            type="text"
-                            placeholder="e.g., A1B2C3D4"
-                            value={newStaffUid}
-                            onChange={(e) => setNewStaffUid(e.target.value)}
-                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-mono font-semibold"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Designation / Role</label>
-                          <input 
-                            type="text"
-                            placeholder="e.g., Professor"
-                            value={newStaffRole}
-                            onChange={(e) => setNewStaffRole(e.target.value)}
-                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Department</label>
-                          <input 
-                            type="text"
-                            placeholder="e.g., Computer Science"
-                            value={newStaffDept}
-                            onChange={(e) => setNewStaffDept(e.target.value)}
-                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Contact Email</label>
-                          <input 
-                            type="email"
-                            placeholder="e.g., silva@seatidle.edu"
-                            value={newStaffEmail}
-                            onChange={(e) => setNewStaffEmail(e.target.value)}
-                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Phone Number</label>
-                          <input 
-                            type="text"
-                            placeholder="e.g., +94 77 123 4567"
-                            value={newStaffPhone}
-                            onChange={(e) => setNewStaffPhone(e.target.value)}
-                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
-                        </div>
-                      </div>
-                      <button 
-                        onClick={addStaff}
-                        disabled={isAddingStaff}
-                        className="w-full bg-brand-blue text-white py-3.5 rounded-2xl font-bold text-[10px] hover:bg-brand-blue/95 transition-all disabled:opacity-50 flex items-center justify-center uppercase tracking-widest cursor-pointer"
-                      >
-                        {isAddingStaff ? <Loader size="sm" light /> : 'Add Card'}
-                      </button>
-                    </div>
-                  </section>
+                {/* Staff Control Sub-tabs */}
+                <div className="flex bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-800 self-start shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setStaffSubTab('list')}
+                    className={cn(
+                      "px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
+                      staffSubTab === 'list'
+                        ? "bg-white dark:bg-slate-900 text-slate-850 dark:text-white shadow-sm border border-slate-100 dark:border-slate-800 font-bold"
+                        : "text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 font-bold"
+                    )}
+                  >
+                    Roster & Cards Setup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffSubTab('register')}
+                    className={cn(
+                      "px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center space-x-2",
+                      staffSubTab === 'register'
+                        ? "bg-white dark:bg-slate-900 text-slate-850 dark:text-white shadow-sm border border-slate-100 dark:border-slate-800 font-bold"
+                        : "text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 font-bold"
+                    )}
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-brand-green" />
+                    <span>Daily Attendance Register</span>
+                  </button>
                 </div>
 
-                {/* Staff Table */}
-                <div className="w-full">
-                  <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden h-full flex flex-col transition-colors">
-                    <div className="p-8 pb-4">
-                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center font-black">
-                        <Users className="w-4 h-4 mr-2 text-brand-green" />
-                        Personnel Management
-                      </h3>
+                {/* Sub-tab Views */}
+                {staffSubTab === 'register' ? (
+                  <div className="space-y-6">
+                    {/* Date Navigation & Actions Header */}
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="p-3 bg-brand-green/10 text-brand-green rounded-2xl">
+                          <Calendar className="w-5 h-5 animate-pulse" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest">Active Attendance Register</h4>
+                          <h2 className="text-sm font-semibold text-slate-800 dark:text-white mt-0.5">
+                            {new Date(selectedFilterDate).toLocaleDateString('en-LK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Colombo' })}
+                          </h2>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        {/* Day increment/decrement controls */}
+                        <div className="flex items-center bg-slate-50 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/50 dark:border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const d = new Date(selectedFilterDate);
+                              d.setDate(d.getDate() - 1);
+                              setSelectedFilterDate(d.toISOString().split('T')[0]);
+                            }}
+                            className="p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 rounded-lg transition-all cursor-pointer"
+                            title="Previous Day"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                          </button>
+                          
+                          <input
+                            type="date"
+                            value={selectedFilterDate}
+                            onChange={(e) => setSelectedFilterDate(e.target.value)}
+                            className="bg-transparent text-xs font-bold px-2 focus:outline-none dark:text-slate-200 cursor-pointer text-center"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const d = new Date(selectedFilterDate);
+                              d.setDate(d.getDate() + 1);
+                              setSelectedFilterDate(d.toISOString().split('T')[0]);
+                            }}
+                            className="p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 rounded-lg transition-all cursor-pointer"
+                            title="Next Day"
+                          >
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Reset to Today Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try {
+                              const colomboDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                              setSelectedFilterDate(colomboDate);
+                            } catch (e) {
+                              setSelectedFilterDate(new Date().toISOString().split('T')[0]);
+                            }
+                          }}
+                          className="px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-300 transition-all cursor-pointer"
+                        >
+                          Today
+                        </button>
+
+                        {/* Export Daily Sheet button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Compile and download CSV
+                            const headers = ['Staff Name', 'Card UID', 'Role', 'Department', 'Email', 'First Swipe (In)', 'Last Swipe (Out)', 'Total Hours Today', 'Status'];
+                            
+                            const rows = staffList.map(staff => {
+                              const dateLogs = staff.logs 
+                                ? Object.entries(staff.logs)
+                                    .map(([id, val]: [string, any]) => ({ id, ...val }))
+                                    .filter(log => getColomboDateString(log.timestamp) === selectedFilterDate)
+                                    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                : [];
+                              
+                              const inLogs = dateLogs.filter(l => l.status === 'IN');
+                              const outLogs = dateLogs.filter(l => l.status === 'OUT');
+                              
+                              const arrival = inLogs.length > 0 
+                                ? new Date(inLogs[0].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' }) 
+                                : 'N/A';
+                                
+                              const departure = outLogs.length > 0 
+                                ? new Date(outLogs[outLogs.length - 1].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' }) 
+                                : 'N/A';
+                                
+                              // Calculate work duration
+                              let totalMs = 0;
+                              let activeInTime: number | null = null;
+                              for (const log of dateLogs) {
+                                if (log.status === 'IN') {
+                                  if (activeInTime === null) {
+                                    activeInTime = new Date(log.timestamp).getTime();
+                                  }
+                                } else if (log.status === 'OUT') {
+                                  if (activeInTime !== null) {
+                                    totalMs += new Date(log.timestamp).getTime() - activeInTime;
+                                    activeInTime = null;
+                                  }
+                                }
+                              }
+                              if (activeInTime !== null) {
+                                const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                                if (selectedFilterDate === todayStr) {
+                                  totalMs += Math.max(0, Date.now() - activeInTime);
+                                }
+                              }
+                              const hrs = (totalMs / (1000 * 60 * 60)).toFixed(2);
+                              
+                              let stat = 'Absent';
+                              if (dateLogs.length > 0) {
+                                stat = dateLogs[dateLogs.length - 1].status === 'IN' ? 'Present Now' : 'Completed Shift';
+                              }
+                              
+                              return [
+                                staff.name || 'Unnamed',
+                                staff.id,
+                                staff.role || 'Staff Member',
+                                staff.department || 'General',
+                                staff.email || 'N/A',
+                                arrival,
+                                departure,
+                                hrs,
+                                stat
+                              ];
+                            });
+                            
+                            const csvContent = [headers, ...rows]
+                              .map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
+                              .join("\n");
+                              
+                            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.setAttribute("href", url);
+                            link.setAttribute("download", `staff_attendance_register_${selectedFilterDate}.csv`);
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }}
+                          className="flex items-center space-x-1.5 px-4 py-2.5 bg-brand-blue dark:bg-brand-green text-white dark:text-slate-950 hover:opacity-90 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer font-bold shadow-sm"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Export Register</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex-1 overflow-x-auto w-full">
-                      <table className="w-full text-left min-w-[800px]">
-                        <thead className="bg-slate-50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest font-black">
-                          <tr>
-                            <th className="px-8 py-4">Personnel</th>
-                            <th className="px-8 py-4">Role & Department</th>
-                            <th className="px-8 py-4">Contact Details</th>
-                            <th className="px-8 py-4">Status</th>
-                            <th className="px-8 py-4 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {staffList.map(staff => (
-                            <tr key={staff.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                              <td className="px-8 py-5">
-                                <div className="flex items-center space-x-3">
-                                  <div className="w-8 h-8 rounded-full bg-brand-blue/10 text-brand-blue dark:bg-brand-blue/20 dark:text-brand-green flex items-center justify-center font-bold text-xs">
-                                    {(staff.name || 'Staff').split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase() || 'ST'}
-                                  </div>
-                                  <div>
-                                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 block">{staff.name}</span>
-                                    <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block">UID: {staff.id}</span>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5">
-                                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">{staff.role || 'Staff Member'}</span>
-                                <span className="text-[10px] text-slate-400 dark:text-slate-500 block">{staff.department || 'General'}</span>
-                              </td>
-                              <td className="px-8 py-5">
-                                <span className="text-xs text-slate-700 dark:text-slate-300 block font-medium">{staff.email || 'staff@seatidle.edu'}</span>
-                                <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-mono">{staff.phone || '+94 77 123 4567'}</span>
-                              </td>
-                              <td className="px-8 py-5">
-                                <span className={cn(
-                                  "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-tighter inline-flex items-center space-x-1.5",
-                                  staff.is_present ? "bg-brand-green/10 dark:bg-brand-green/20 text-brand-green dark:text-brand-green" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-500"
-                                )}>
-                                  {staff.is_present && (
-                                    <span className="relative flex h-1.5 w-1.5">
-                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-green opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand-green"></span>
-                                    </span>
-                                  )}
-                                  <span>{staff.is_present ? 'Present' : 'Away'}</span>
-                                </span>
-                              </td>
-                              <td className="px-8 py-5 text-right flex items-center justify-end space-x-2">
-                                <button 
-                                  onClick={() => {
-                                    setSelectedStaff(staff);
-                                    setEditStaffName(staff.name || '');
-                                    setEditStaffRole(staff.role || 'Staff Member');
-                                    setEditStaffDept(staff.department || 'General');
-                                    setEditStaffEmail(staff.email || 'staff@seatidle.edu');
-                                    setEditStaffPhone(staff.phone || '+94 77 123 4567');
-                                    setIsEditingProfile(false);
-                                  }}
-                                  className="px-3 py-1.5 text-[10px] font-black uppercase text-brand-blue hover:bg-brand-blue/5 dark:text-brand-green dark:hover:bg-brand-green/10 rounded-xl border border-brand-blue/10 dark:border-brand-green/10 transition-all font-bold cursor-pointer"
-                                >
-                                  Inspect
-                                </button>
-                                <button 
-                                  onClick={() => toggleStaffPresence(staff.id, staff.is_present)}
-                                  className={cn(
-                                    "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer",
-                                    staff.is_present ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/10" : "text-brand-green hover:bg-brand-green/5 dark:hover:bg-brand-green/10"
-                                  )}
-                                >
-                                  {staff.is_present ? 'Set Away' : 'Set Present'}
-                                </button>
-                                {confirmingStaffId === staff.id ? (
-                                  <div className="flex items-center space-x-1 pl-2">
-                                    <button 
-                                      onClick={async () => {
-                                        try {
-                                          await remove(ref(database, `staff_presence/${staff.id}`));
-                                        } catch (err) {
-                                          console.error("Delete staff error:", err);
-                                        } finally {
-                                          setConfirmingStaffId(null);
-                                        }
-                                      }}
-                                      className="px-2.5 py-1 text-[10px] font-black uppercase text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg border border-red-500/20 transition-all font-bold cursor-pointer"
-                                    >
-                                      Yes
-                                    </button>
-                                    <button 
-                                      onClick={() => setConfirmingStaffId(null)}
-                                      className="px-2.5 py-1 text-[10px] font-bold uppercase text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800 transition-all cursor-pointer"
-                                    >
-                                      No
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button 
-                                    onClick={() => setConfirmingStaffId(staff.id)}
-                                    className="p-2 text-slate-300 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition-colors cursor-pointer"
-                                    title="Remove Staff"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                          {staffList.length === 0 && (
+
+                    {/* Stats Dashboard for selected register date */}
+                    {(() => {
+                      let activeCount = 0;
+                      let presentCount = 0;
+                      let totalLoggedMs = 0;
+
+                      staffList.forEach(staff => {
+                        const dateLogs = staff.logs 
+                          ? Object.entries(staff.logs)
+                              .map(([id, val]: [string, any]) => ({ id, ...val }))
+                              .filter(log => getColomboDateString(log.timestamp) === selectedFilterDate)
+                          : [];
+
+                        if (dateLogs.length > 0) {
+                          activeCount += 1;
+                          const lastLog = dateLogs.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[dateLogs.length - 1];
+                          if (lastLog.status === 'IN') {
+                            presentCount += 1;
+                          }
+                        }
+
+                        // Calculate total hours
+                        const sortedLogs = staff.logs 
+                          ? Object.entries(staff.logs)
+                              .map(([id, val]: [string, any]) => ({ id, ...val }))
+                              .filter(log => getColomboDateString(log.timestamp) === selectedFilterDate)
+                              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                          : [];
+
+                        let totalMs = 0;
+                        let activeInTime: number | null = null;
+                        for (const log of sortedLogs) {
+                          if (log.status === 'IN') {
+                            if (activeInTime === null) {
+                              activeInTime = new Date(log.timestamp).getTime();
+                            }
+                          } else if (log.status === 'OUT') {
+                            if (activeInTime !== null) {
+                              totalMs += new Date(log.timestamp).getTime() - activeInTime;
+                              activeInTime = null;
+                            }
+                          }
+                        }
+                        if (activeInTime !== null) {
+                          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                          if (selectedFilterDate === todayStr) {
+                            totalMs += Math.max(0, Date.now() - activeInTime);
+                          }
+                        }
+                        totalLoggedMs += totalMs;
+                      });
+
+                      const displayHours = (totalLoggedMs / (1000 * 60 * 60)).toFixed(1);
+
+                      return (
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-slate-800 dark:text-slate-200">
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
+                            <span className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Registered Staff</span>
+                            <span className="text-2xl font-bold block mt-1 font-mono">{staffList.length}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Total roster entries</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
+                            <span className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Active Today</span>
+                            <span className="text-2xl font-bold text-teal-500 dark:text-teal-400 block mt-1 font-mono">{activeCount}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Swiped on this date</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
+                            <span className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Checked In Now</span>
+                            <span className="text-2xl font-bold text-brand-blue dark:text-brand-green block mt-1 font-mono">{presentCount}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Currently serving shifts</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
+                            <span className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Total Work Hours</span>
+                            <span className="text-2xl font-bold text-amber-500 block mt-1 font-mono">{displayHours}h</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Cumulative shift duration</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Filter and Table Container */}
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
+                      {/* Search Bar */}
+                      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Filter attendance register by staff name, department, or role..."
+                            value={registerSearch}
+                            onChange={(e) => setRegisterSearch(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 font-medium"
+                          />
+                        </div>
+                        {registerSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setRegisterSearch('')}
+                            className="px-3 py-2 text-xs text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 font-bold"
+                          >
+                            Clear Filter
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Register Table */}
+                      <div className="overflow-x-auto w-full">
+                        <table className="w-full text-left min-w-[900px]">
+                          <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest font-black">
                             <tr>
-                              <td colSpan={5} className="px-8 py-12 text-center text-slate-400 dark:text-slate-600 text-xs italic font-semibold">
-                                No staff members registered.
-                              </td>
+                              <th className="px-8 py-4">Staff Member</th>
+                              <th className="px-8 py-4">Register Status</th>
+                              <th className="px-8 py-4">First Swipe (In)</th>
+                              <th className="px-8 py-4">Latest Swipe (Out)</th>
+                              <th className="px-8 py-4">Hours Today</th>
+                              <th className="px-8 py-4 text-right">Register Action</th>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {(() => {
+                              const filtered = staffList.filter(s => 
+                                !registerSearch || 
+                                s.name?.toLowerCase().includes(registerSearch.toLowerCase()) || 
+                                s.department?.toLowerCase().includes(registerSearch.toLowerCase()) || 
+                                s.role?.toLowerCase().includes(registerSearch.toLowerCase())
+                              );
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan={6} className="px-8 py-16 text-center text-slate-400 dark:text-slate-600 text-xs italic font-semibold">
+                                      {registerSearch ? 'No staff matched your query.' : 'No personnel registered.'}
+                                    </td>
+                                  </tr>
+                                );
+                              }
+
+                              return filtered.map(staff => {
+                                const dateLogs = staff.logs 
+                                  ? Object.entries(staff.logs)
+                                      .map(([id, val]: [string, any]) => ({ id, ...val }))
+                                      .filter(log => getColomboDateString(log.timestamp) === selectedFilterDate)
+                                      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                  : [];
+                                
+                                const inLogs = dateLogs.filter(l => l.status === 'IN');
+                                const outLogs = dateLogs.filter(l => l.status === 'OUT');
+                                
+                                const firstInTime = inLogs.length > 0 
+                                  ? new Date(inLogs[0].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' }) 
+                                  : null;
+                                  
+                                const lastOutTime = outLogs.length > 0 
+                                  ? new Date(outLogs[outLogs.length - 1].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' }) 
+                                  : null;
+
+                                // Shift calculation state
+                                let totalMs = 0;
+                                let activeInTime: number | null = null;
+                                for (const log of dateLogs) {
+                                  if (log.status === 'IN') {
+                                    if (activeInTime === null) {
+                                      activeInTime = new Date(log.timestamp).getTime();
+                                    }
+                                  } else if (log.status === 'OUT') {
+                                    if (activeInTime !== null) {
+                                      totalMs += new Date(log.timestamp).getTime() - activeInTime;
+                                      activeInTime = null;
+                                    }
+                                  }
+                                }
+                                if (activeInTime !== null) {
+                                  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                                  if (selectedFilterDate === todayStr) {
+                                    totalMs += Math.max(0, Date.now() - activeInTime);
+                                  }
+                                }
+
+                                // Status resolve
+                                let statusType: 'absent' | 'completed' | 'present' = 'absent';
+                                if (dateLogs.length > 0) {
+                                  const lastLog = dateLogs[dateLogs.length - 1];
+                                  if (lastLog.status === 'IN') {
+                                    statusType = 'present';
+                                  } else {
+                                    statusType = 'completed';
+                                  }
+                                }
+
+                                const isToday = selectedFilterDate === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+
+                                return (
+                                  <tr key={staff.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all">
+                                    {/* Personnel Info */}
+                                    <td className="px-8 py-4">
+                                      <div className="flex items-center space-x-3">
+                                        <div className="w-9 h-9 rounded-full bg-brand-blue/10 text-brand-blue dark:bg-slate-800 dark:text-brand-green flex items-center justify-center font-bold text-xs uppercase">
+                                          {(staff.name || 'Staff').split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'ST'}
+                                        </div>
+                                        <div>
+                                          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">{staff.name}</div>
+                                          <div className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">{staff.role || 'Staff Member'} • {staff.department || 'General'}</div>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    {/* Register Status Badge */}
+                                    <td className="px-8 py-4">
+                                      {statusType === 'present' ? (
+                                        <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider inline-flex items-center space-x-1.5 bg-brand-green/10 text-brand-green border border-brand-green/20">
+                                          <span className="relative flex h-1.5 w-1.5">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-green opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand-green"></span>
+                                          </span>
+                                          <span>Present Now</span>
+                                        </span>
+                                      ) : statusType === 'completed' ? (
+                                        <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider inline-flex items-center space-x-1.5 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-500/20">
+                                          <span>Completed Shift</span>
+                                        </span>
+                                      ) : (
+                                        <span className="px-2.5 py-1 rounded-lg text-[9px] font-semibold uppercase tracking-wider inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500">
+                                          <span>Absent</span>
+                                        </span>
+                                      )}
+                                    </td>
+
+                                    {/* First Swipe */}
+                                    <td className="px-8 py-4 font-mono text-[10.5px] font-bold text-slate-700 dark:text-slate-300">
+                                      {firstInTime ? (
+                                        <span className="flex items-center space-x-1 text-brand-green font-bold">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-brand-green inline-block"></span>
+                                          <span>{firstInTime}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300 dark:text-slate-705">—</span>
+                                      )}
+                                    </td>
+
+                                    {/* Latest Swipe */}
+                                    <td className="px-8 py-4 font-mono text-[10.5px] font-bold text-slate-700 dark:text-slate-300">
+                                      {lastOutTime ? (
+                                        <span className="flex items-center space-x-1 text-amber-500 font-bold">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block"></span>
+                                          <span>{lastOutTime}</span>
+                                        </span>
+                                      ) : statusType === 'present' ? (
+                                        <span className="text-brand-green text-[9px] font-bold uppercase tracking-wide">Active Session</span>
+                                      ) : (
+                                        <span className="text-slate-300 dark:text-slate-705">—</span>
+                                      )}
+                                    </td>
+
+                                    {/* Logged Work Time */}
+                                    <td className="px-8 py-4 font-mono text-xs font-semibold text-slate-700 dark:text-slate-350">
+                                      {totalMs > 0 ? (
+                                        <span className="bg-slate-50 dark:bg-slate-800/80 p-1.5 px-2.5 rounded-xl border border-slate-100 dark:border-slate-800 font-bold font-mono">
+                                          {formatDuration(totalMs)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300 dark:text-slate-705">—</span>
+                                      )}
+                                    </td>
+
+                                    {/* Manual Register Swipe Action */}
+                                    <td className="px-8 py-4 text-right">
+                                      {isToday ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleStaffPresence(staff.id, statusType === 'present')}
+                                          className={cn(
+                                            "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer inline-flex items-center space-x-1",
+                                            statusType === 'present'
+                                              ? "bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/15"
+                                              : "bg-brand-green/15 text-brand-green border border-brand-green/20 hover:bg-brand-green/20"
+                                          )}
+                                        >
+                                          {statusType === 'present' ? (
+                                            <span>Punch OUT</span>
+                                          ) : (
+                                            <span>Punch IN</span>
+                                          )}
+                                        </button>
+                                      ) : (
+                                        <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-600 bg-slate-50 dark:bg-slate-800/50 p-1 px-2 rounded-lg border border-slate-100/50 dark:border-slate-800 flex items-center space-x-1 inline-flex justify-end">
+                                          <Lock className="w-3 h-3 text-slate-400" />
+                                          <span>Past Date</span>
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              });
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </section>
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-8">
+                    {/* Register Staff Section */}
+                    <div className="w-full flex flex-col space-y-8 transition-colors">
+                      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-6 flex items-center">
+                          <Plus className="w-4 h-4 mr-2 text-brand-green" />
+                          Register Staff
+                        </h3>
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Staff Name</label>
+                              <input 
+                                type="text"
+                                placeholder="e.g., Dr. Silva"
+                                value={newStaffName}
+                                onChange={(e) => setNewStaffName(e.target.value)}
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">RFID Card UID (Hex)</label>
+                              <input 
+                                type="text"
+                                placeholder="e.g., A1B2C3D4"
+                                value={newStaffUid}
+                                onChange={(e) => setNewStaffUid(e.target.value)}
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-mono font-semibold"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Designation / Role</label>
+                              <input 
+                                type="text"
+                                placeholder="e.g., Professor"
+                                value={newStaffRole}
+                                onChange={(e) => setNewStaffRole(e.target.value)}
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Department</label>
+                              <input 
+                                type="text"
+                                placeholder="e.g., Computer Science"
+                                value={newStaffDept}
+                                onChange={(e) => setNewStaffDept(e.target.value)}
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Contact Email</label>
+                              <input 
+                                type="email"
+                                placeholder="e.g., silva@seatidle.edu"
+                                value={newStaffEmail}
+                                onChange={(e) => setNewStaffEmail(e.target.value)}
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 block mb-1.5 tracking-widest ml-1">Phone Number</label>
+                              <input 
+                                type="text"
+                                placeholder="e.g., +94 77 123 4567"
+                                value={newStaffPhone}
+                                onChange={(e) => setNewStaffPhone(e.target.value)}
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                          </div>
+                          <button 
+                            onClick={addStaff}
+                            disabled={isAddingStaff}
+                            className="w-full bg-brand-blue text-white py-3.5 rounded-2xl font-bold text-[10px] hover:bg-brand-blue/95 transition-all disabled:opacity-50 flex items-center justify-center uppercase tracking-widest cursor-pointer"
+                          >
+                            {isAddingStaff ? <Loader size="sm" light /> : 'Add Card'}
+                          </button>
+                        </div>
+                      </section>
+                    </div>
+
+                    {/* Staff Table */}
+                    <div className="w-full">
+                      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden h-full flex flex-col transition-colors">
+                        <div className="p-8 pb-4">
+                          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center font-black">
+                            <Users className="w-4 h-4 mr-2 text-brand-green" />
+                            Personnel Management
+                          </h3>
+                        </div>
+                        <div className="flex-1 overflow-x-auto w-full">
+                          <table className="w-full text-left min-w-[800px]">
+                            <thead className="bg-slate-50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest font-black">
+                              <tr>
+                                <th className="px-8 py-4">Personnel</th>
+                                <th className="px-8 py-4">Role & Department</th>
+                                <th className="px-8 py-4">Contact Details</th>
+                                <th className="px-8 py-4">Status</th>
+                                <th className="px-8 py-4 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {staffList.map(staff => (
+                                <tr key={staff.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                  <td className="px-8 py-5">
+                                    <div className="flex items-center space-x-3">
+                                      <div className="w-8 h-8 rounded-full bg-brand-blue/10 text-brand-blue dark:bg-brand-blue/20 dark:text-brand-green flex items-center justify-center font-bold text-xs">
+                                        {(staff.name || 'Staff').split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase() || 'ST'}
+                                      </div>
+                                      <div>
+                                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 block">{staff.name}</span>
+                                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block">UID: {staff.id}</span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-8 py-5">
+                                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">{staff.role || 'Staff Member'}</span>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 block">{staff.department || 'General'}</span>
+                                  </td>
+                                  <td className="px-8 py-5">
+                                    <span className="text-xs text-slate-700 dark:text-slate-300 block font-medium">{staff.email || 'staff@seatidle.edu'}</span>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-mono">{staff.phone || '+94 77 123 4567'}</span>
+                                  </td>
+                                  <td className="px-8 py-5">
+                                    <span className={cn(
+                                      "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-tighter inline-flex items-center space-x-1.5",
+                                      staff.is_present ? "bg-brand-green/10 dark:bg-brand-green/20 text-brand-green dark:text-brand-green" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-500"
+                                    )}>
+                                      {staff.is_present && (
+                                        <span className="relative flex h-1.5 w-1.5">
+                                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-green opacity-75"></span>
+                                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand-green"></span>
+                                        </span>
+                                      )}
+                                      <span>{staff.is_present ? 'Present' : 'Away'}</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-8 py-5 text-right flex items-center justify-end space-x-2">
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedStaff(staff);
+                                        setInspectorTab('profile');
+                                        setEditStaffName(staff.name || '');
+                                        setEditStaffRole(staff.role || 'Staff Member');
+                                        setEditStaffDept(staff.department || 'General');
+                                        setEditStaffEmail(staff.email || 'staff@seatidle.edu');
+                                        setEditStaffPhone(staff.phone || '+94 77 123 4567');
+                                        setIsEditingProfile(false);
+                                      }}
+                                      className="px-3 py-1.5 text-[10px] font-black uppercase text-brand-blue hover:bg-brand-blue/5 dark:text-brand-green dark:hover:bg-brand-green/10 rounded-xl border border-brand-blue/10 dark:border-brand-green/10 transition-all font-bold cursor-pointer"
+                                    >
+                                      Inspect
+                                    </button>
+                                    <button 
+                                      onClick={() => toggleStaffPresence(staff.id, staff.is_present)}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer",
+                                        staff.is_present ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/10" : "text-brand-green hover:bg-brand-green/5 dark:hover:bg-brand-green/10"
+                                      )}
+                                    >
+                                      {staff.is_present ? 'Set Away' : 'Set Present'}
+                                    </button>
+                                    {confirmingStaffId === staff.id ? (
+                                      <div className="flex items-center space-x-1 pl-2">
+                                        <button 
+                                          onClick={async () => {
+                                            try {
+                                              await remove(ref(database, `staff_presence/${staff.id}`));
+                                            } catch (err) {
+                                              console.error("Delete staff error:", err);
+                                            } finally {
+                                              setConfirmingStaffId(null);
+                                            }
+                                          }}
+                                          className="px-2.5 py-1 text-[10px] font-black uppercase text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg border border-red-500/20 transition-all font-bold cursor-pointer"
+                                        >
+                                          Yes
+                                        </button>
+                                        <button 
+                                          onClick={() => setConfirmingStaffId(null)}
+                                          className="px-2.5 py-1 text-[10px] font-bold uppercase text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800 transition-all cursor-pointer"
+                                        >
+                                          No
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button 
+                                        onClick={() => setConfirmingStaffId(staff.id)}
+                                        className="p-2 text-slate-300 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition-colors cursor-pointer"
+                                        title="Remove Staff"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                              {staffList.length === 0 && (
+                                <tr>
+                                  <td colSpan={5} className="px-8 py-12 text-center text-slate-400 dark:text-slate-600 text-xs italic font-semibold">
+                                    No staff members registered.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -1313,94 +2101,206 @@ export function Admin() {
                 exit={{ opacity: 0, x: -10 }}
                 className="space-y-8"
               >
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Peak Occupancy</p>
-                <div className="flex items-end justify-between">
-                  <p className="text-3xl font-black text-slate-800 dark:text-white">
-                    {Math.max(...historyData.map(h => h.occupancy), 0)}
-                  </p>
-                  <TrendingUp className="w-8 h-8 text-brand-green opacity-20" />
-                </div>
-              </div>
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Avg. Occupancy</p>
-                <div className="flex items-end justify-between">
-                  <p className="text-3xl font-black text-slate-800 dark:text-white">
-                    {historyData.length > 0 
-                      ? Math.round(historyData.reduce((acc, curr) => acc + curr.occupancy, 0) / historyData.length)
-                      : 0}
-                  </p>
-                  <BarChart3 className="w-8 h-8 text-brand-blue opacity-20" />
-                </div>
-              </div>
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Total Samples</p>
-                <div className="flex items-end justify-between">
-                  <p className="text-3xl font-black text-slate-800 dark:text-white">{historyData.length}</p>
-                  <PieChart className="w-8 h-8 text-brand-blue opacity-20" />
-                </div>
-              </div>
-            </div>
+                {/* Analytics Multi-Metric Overview Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200/50 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Peak Occupancy (All-Time)</p>
+                      <p className="text-3xl font-black text-slate-800 dark:text-white font-mono">
+                        {peakOccupancyAllTime}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between mt-4">
+                      <span className="text-[10px] bg-red-500/10 text-red-500 px-2.5 py-0.5 rounded-lg font-black uppercase tracking-wider">Historical Max</span>
+                      <TrendingUp className="w-5 h-5 text-red-500 opacity-60" />
+                    </div>
+                  </div>
 
-            <section className="bg-white dark:bg-slate-900 rounded-[40px] border border-slate-200 dark:border-slate-800 p-10 shadow-sm overflow-hidden min-h-[500px]">
-              <div className="flex flex-col md:flex-row md:items-center justify-between mb-12">
-                <div>
-                  <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Occupancy Trends</h3>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">Real-time usage analysis for the last 24 recorded points</p>
-                </div>
-                <div className="mt-4 md:mt-0 flex gap-2">
-                  <span className="px-3 py-1.5 bg-brand-blue/10 text-brand-blue text-[10px] font-black uppercase tracking-widest rounded-full border border-brand-blue/20">Daily View</span>
-                  <span className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-widest rounded-full border border-slate-100 dark:border-slate-800">Weekly</span>
-                </div>
-              </div>
+                  <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200/50 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Avg. Occupancy (All-Time)</p>
+                      <p className="text-3xl font-black text-slate-800 dark:text-white font-mono">
+                        {averageOccupancyAllTime}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between mt-4">
+                      <span className="text-[10px] bg-brand-blue/10 text-brand-blue px-2.5 py-0.5 rounded-lg font-black uppercase tracking-wider">Overall Mean</span>
+                      <BarChart3 className="w-5 h-5 text-brand-blue opacity-60" />
+                    </div>
+                  </div>
 
-              <div className="h-[400px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={historyData}>
-                    <defs>
-                      <linearGradient id="colorOcc" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#2D60FF" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#2D60FF" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis 
-                      dataKey="timestamp" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fill: '#94A3B8', fontSize: 10, fontWeight: 700 }}
-                      dy={10}
-                    />
-                    <YAxis 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fill: '#94A3B8', fontSize: 10, fontWeight: 700 }}
-                      dx={-10}
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        borderRadius: '16px', 
-                        border: 'none', 
-                        boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
-                        backgroundColor: '#FFF'
-                      }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="occupancy" 
-                      stroke="#2D60FF" 
-                      strokeWidth={4} 
-                      fillOpacity={1} 
-                      fill="url(#colorOcc)" 
-                      animationDuration={1500}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-          </motion.div>
-        )}
+                  <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200/50 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Predicted Peak Hour</p>
+                      <p className="text-2xl font-black text-teal-600 dark:text-teal-400 tracking-tight font-sans">
+                        {predictedPeakHour}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between mt-4">
+                      <span className="text-[10px] bg-teal-500/10 text-teal-600 dark:text-teal-400 px-2.5 py-0.5 rounded-lg font-black uppercase tracking-wider animate-pulse">Smart Forecast</span>
+                      <Clock className="w-5 h-5 text-teal-500 opacity-60" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200/50 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Saved Samples Log</p>
+                      <p className="text-3xl font-black text-slate-800 dark:text-white font-mono">
+                        {rawHistoryData.length}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between mt-4 gap-2">
+                      <button
+                        onClick={downloadHistoricalCSV}
+                        className="w-full bg-brand-blue hover:bg-brand-blue/90 text-white font-extrabold text-[9px] uppercase tracking-widest px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Export CSV
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grid layout for Occupancy charts */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  
+                  {/* Chart 1: Real-Time / Sliced Occupancy Trends */}
+                  <section className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200/60 dark:border-slate-800 p-8 shadow-sm flex flex-col h-[480px]">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+                      <div>
+                        <h3 className="text-xs font-black text-slate-800 dark:text-white tracking-tight uppercase">Recent Trends</h3>
+                        <p className="text-slate-500 dark:text-slate-400 text-[10px] font-semibold mt-0.5">Continuous plot for the last 24 recorded points</p>
+                      </div>
+                      <span className="self-start sm:self-auto px-3 py-1 bg-brand-blue/10 text-brand-blue text-[9px] font-black uppercase tracking-widest rounded-lg border border-brand-blue/15">Active Feed</span>
+                    </div>
+
+                    <div className="flex-1 min-h-0 w-full">
+                      {historyData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={historyData}>
+                            <defs>
+                              <linearGradient id="colorOccReport" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#2D60FF" stopOpacity={0.25}/>
+                                <stop offset="95%" stopColor="#2D60FF" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                            <XAxis 
+                              dataKey="timestamp" 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fill: '#94A3B8', fontSize: 9, fontWeight: 750 }}
+                              dy={8}
+                            />
+                            <YAxis 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fill: '#94A3B8', fontSize: 9, fontWeight: 750 }}
+                              dx={-6}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                borderRadius: '16px', 
+                                border: '1px solid #E2E8F0', 
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+                                backgroundColor: '#FFF',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                color: '#1E293B'
+                              }}
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="occupancy" 
+                              stroke="#2D60FF" 
+                              strokeWidth={3} 
+                              fillOpacity={1} 
+                              fill="url(#colorOccReport)" 
+                              animationDuration={1000}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs italic font-semibold">
+                          No recent trend entries found.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* Chart 2: Hourly Crowd Density Distribution Profile */}
+                  <section className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200/60 dark:border-slate-800 p-8 shadow-sm flex flex-col h-[480px]">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+                      <div>
+                        <h3 className="text-xs font-black text-slate-800 dark:text-white tracking-tight uppercase">Daily Crowd Distribution</h3>
+                        <p className="text-slate-500 dark:text-slate-400 text-[10px] font-semibold mt-0.5">Average occupancy counts grouped by hour of the day</p>
+                      </div>
+                      <span className="self-start sm:self-auto px-3 py-1 bg-teal-500/10 text-teal-600 dark:text-teal-400 text-[9px] font-black uppercase tracking-widest rounded-lg border border-teal-500/15">Hourly Profile</span>
+                    </div>
+
+                    <div className="flex-1 min-h-0 w-full">
+                      {hourlyOccupancyDistribution.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={hourlyOccupancyDistribution}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                            <XAxis 
+                              dataKey="hourLabel" 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fill: '#94A3B8', fontSize: 8, fontWeight: 750 }}
+                              dy={8}
+                            />
+                            <YAxis 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fill: '#94A3B8', fontSize: 9, fontWeight: 750 }}
+                              dx={-6}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                borderRadius: '16px', 
+                                border: '1px solid #E2E8F0', 
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+                                backgroundColor: '#FFF',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                color: '#1E293B'
+                              }}
+                            />
+                            <Bar 
+                              dataKey="occupancy" 
+                              fill="#2D60FF" 
+                              radius={[6, 6, 0, 0]}
+                              className="fill-brand-blue"
+                              maxBarSize={28}
+                              animationDuration={1200}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs italic font-semibold">
+                          Awaiting historical database logs.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                </div>
+
+                {/* Smart Analytics Insight Panel */}
+                <div className="bg-slate-50 dark:bg-slate-800/30 rounded-[32px] border border-slate-100 dark:border-slate-800 p-6 flex items-start gap-4 transition-all">
+                  <div className="p-2.5 bg-brand-blue/10 text-brand-blue dark:bg-brand-green/20 dark:text-brand-green rounded-2xl shrink-0 mt-0.5">
+                    <Info className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-[10px] font-black uppercase text-slate-750 dark:text-white tracking-widest">IoT Resource Recommendation Summary</h4>
+                    <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed font-semibold">
+                      Based on continuous background telemetry patterns, Peak system congestion aligns closest around the <strong className="text-brand-blue dark:text-brand-green">{predictedPeakHour}</strong> window. 
+                      To optimize electricity consumption and staff resources, consider activating the SeatIdle ESP physical node scanning module 1 hour prior (starting at {busiestPredictionObj.hourNumber > 0 ? `${(busiestPredictionObj.hourNumber - 1) % 12 === 0 ? 12 : (busiestPredictionObj.hourNumber - 1) % 12} ${busiestPredictionObj.hourNumber - 1 >= 12 ? 'PM' : 'AM'}` : 'N/A'}) to capture the incoming crowd rush smoothly.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
       </AnimatePresence>
 
         </div> {/* Content Column end */}
@@ -1553,207 +2453,387 @@ export function Admin() {
                 </div>
               </div>
 
+              {/* Tab Navigation inside Inspector */}
+              <div className="flex border-b border-slate-100 dark:border-slate-800 mb-4 overflow-x-auto shrink-0 scrollbar-none">
+                {[
+                  { id: 'profile', label: 'Profile', icon: User },
+                  { id: 'presence', label: 'RFID Scans', icon: Clock },
+                  { id: 'logins', label: 'Portal Logins', icon: Monitor },
+                  { id: 'analytics', label: 'Analytics', icon: BarChart3 }
+                ].map((t) => {
+                  const IconComponent = t.icon;
+                  const isCurrent = inspectorTab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setInspectorTab(t.id as any)}
+                      className={cn(
+                        "flex items-center space-x-1.5 py-2 px-3 text-[10px] font-black uppercase tracking-wider border-b-2 transition-all relative cursor-pointer mr-2 whitespace-nowrap",
+                        isCurrent 
+                          ? "border-brand-blue text-brand-blue dark:border-brand-green dark:text-brand-green" 
+                          : "border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      )}
+                    >
+                      <IconComponent className="w-3.5 h-3.5" />
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Profile Details & Real-Time Attendance Monitoring */}
               <div className="flex-1 overflow-y-auto pr-1 space-y-6">
-                {!isEditingProfile ? (
-                  <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Personnel Profile Info</h4>
-                      <button 
-                        onClick={() => {
-                          setEditStaffName(selectedStaff.name || '');
-                          setEditStaffRole(selectedStaff.role || 'Staff Member');
-                          setEditStaffDept(selectedStaff.department || 'General');
-                          setEditStaffEmail(selectedStaff.email || 'staff@seatidle.edu');
-                          setEditStaffPhone(selectedStaff.phone || '+94 77 123 4567');
-                          setIsEditingProfile(true);
-                        }}
-                        className="text-brand-blue dark:text-brand-green font-bold text-xs uppercase tracking-wider hover:opacity-85"
-                      >
-                        Modify Profile
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Title / Role</span>
-                        <span className="text-slate-700 dark:text-slate-200 font-semibold">{selectedStaff.role || 'Staff Member'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Department</span>
-                        <span className="text-slate-700 dark:text-slate-200 font-semibold">{selectedStaff.department || 'General'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Contact Email</span>
-                        <span className="text-slate-700 dark:text-slate-200 font-semibold break-all">{selectedStaff.email || 'staff@seatidle.edu'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Phone Contact</span>
-                        <span className="text-slate-700 dark:text-slate-200 font-semibold">{selectedStaff.phone || '+94 77 123 4567'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Registration Date</span>
-                        <span className="text-slate-700 dark:text-slate-200 font-mono">
-                          {selectedStaff.joined_date 
-                            ? new Date(selectedStaff.joined_date).toLocaleDateString('en-LK', { dateStyle: 'medium', timeZone: 'Asia/Colombo' }) 
-                            : 'N/A'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Last Interaction</span>
-                        <span className="text-slate-700 dark:text-slate-200 font-mono">
-                          {selectedStaff.last_updated 
-                            ? new Date(selectedStaff.last_updated).toLocaleString('en-LK', { timeZone: 'Asia/Colombo' }) 
-                            : 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest text-brand-blue dark:text-brand-green">Modify Profile Fields</h4>
-                      <button 
-                        onClick={() => setIsEditingProfile(false)}
-                        className="text-slate-400 dark:text-slate-500 font-bold text-xs uppercase tracking-wider hover:text-slate-600"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Full Name</label>
-                        <input 
-                          type="text" 
-                          value={editStaffName} 
-                          onChange={(e) => setEditStaffName(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Designation</label>
-                          <input 
-                            type="text" 
-                            value={editStaffRole} 
-                            onChange={(e) => setEditStaffRole(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
+                {inspectorTab === 'profile' && (
+                  <div className="space-y-6">
+                    {!isEditingProfile ? (
+                      <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Personnel Profile Info</h4>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setEditStaffName(selectedStaff.name || '');
+                              setEditStaffRole(selectedStaff.role || 'Staff Member');
+                              setEditStaffDept(selectedStaff.department || 'General');
+                              setEditStaffEmail(selectedStaff.email || 'staff@seatidle.edu');
+                              setEditStaffPhone(selectedStaff.phone || '+94 77 123 4567');
+                              setIsEditingProfile(true);
+                            }}
+                            className="text-brand-blue dark:text-brand-green font-bold text-xs uppercase tracking-wider hover:opacity-85"
+                          >
+                            Modify Profile
+                          </button>
                         </div>
-                        <div>
-                          <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Department</label>
-                          <input 
-                            type="text" 
-                            value={editStaffDept} 
-                            onChange={(e) => setEditStaffDept(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                          <div>
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Title / Role</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-semibold">{selectedStaff.role || 'Staff Member'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Department</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-semibold">{selectedStaff.department || 'General'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Contact Email</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-semibold break-all">{selectedStaff.email || 'staff@seatidle.edu'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Phone Contact</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-semibold">{selectedStaff.phone || '+94 77 123 4567'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Registration Date</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-mono">
+                              {selectedStaff.joined_date 
+                                ? new Date(selectedStaff.joined_date).toLocaleDateString('en-LK', { dateStyle: 'medium', timeZone: 'Asia/Colombo' }) 
+                                : 'N/A'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Last Interaction</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-mono">
+                              {selectedStaff.last_updated 
+                                ? new Date(selectedStaff.last_updated).toLocaleString('en-LK', { timeZone: 'Asia/Colombo' }) 
+                                : 'N/A'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Contact Email</label>
-                          <input 
-                            type="email" 
-                            value={editStaffEmail} 
-                            onChange={(e) => setEditStaffEmail(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
-                          />
+                    ) : (
+                      <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest text-brand-blue dark:text-brand-green">Modify Profile Fields</h4>
+                          <button 
+                            type="button"
+                            onClick={() => setIsEditingProfile(false)}
+                            className="text-slate-400 dark:text-slate-500 font-bold text-xs uppercase tracking-wider hover:text-slate-600"
+                          >
+                            Cancel
+                          </button>
                         </div>
-                        <div>
-                          <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Phone</label>
-                          <input 
-                            type="text" 
-                            value={editStaffPhone} 
-                            onChange={(e) => setEditStaffPhone(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-semibold"
-                          />
+                        
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Full Name</label>
+                            <input 
+                              type="text" 
+                              value={editStaffName} 
+                              onChange={(e) => setEditStaffName(e.target.value)}
+                              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Designation</label>
+                              <input 
+                                type="text" 
+                                value={editStaffRole} 
+                                onChange={(e) => setEditStaffRole(e.target.value)}
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Department</label>
+                              <input 
+                                type="text" 
+                                value={editStaffDept} 
+                                onChange={(e) => setEditStaffDept(e.target.value)}
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Contact Email</label>
+                              <input 
+                                type="email" 
+                                value={editStaffEmail} 
+                                onChange={(e) => setEditStaffEmail(e.target.value)}
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-medium"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Phone</label>
+                              <input 
+                                type="text" 
+                                value={editStaffPhone} 
+                                onChange={(e) => setEditStaffPhone(e.target.value)}
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue dark:text-slate-200 transition-all font-semibold"
+                              />
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
 
-                    <button 
-                      onClick={() => updateStaffProfile(selectedStaff.id)}
-                      className="w-full bg-brand-blue text-white py-2.5 rounded-xl text-xs font-bold transition-all uppercase tracking-widest hover:bg-brand-blue/95 flex items-center justify-center mt-2"
-                    >
-                      Save Configuration
-                    </button>
+                        <button 
+                          type="button"
+                          onClick={() => updateStaffProfile(selectedStaff.id)}
+                          className="w-full bg-brand-blue text-white py-2.5 rounded-xl text-xs font-bold transition-all uppercase tracking-widest hover:bg-brand-blue/95 flex items-center justify-center mt-2"
+                        >
+                          Save Configuration
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between p-4 bg-blue-50/50 dark:bg-slate-800/10 border border-brand-blue/10 dark:border-slate-800 rounded-2xl">
+                      <div>
+                        <h5 className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Attendance Status Override</h5>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">Override staff presence on server</p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => addManualLog(selectedStaff.id, 'IN', 'ADMIN_MANUAL_IN')}
+                          disabled={selectedStaff.is_present}
+                          className="px-3.5 py-1.5 bg-brand-green/20 text-brand-green hover:bg-brand-green/30 disabled:opacity-40 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer font-bold"
+                        >
+                          Manual In
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addManualLog(selectedStaff.id, 'OUT', 'ADMIN_MANUAL_OUT')}
+                          disabled={!selectedStaff.is_present}
+                          className="px-3.5 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-300 disabled:opacity-40 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer font-bold"
+                        >
+                          Manual Out
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
-                {/* Manual Check-In/Away Toggle Logs Injector */}
-                <div className="flex items-center justify-between p-4 bg-blue-50/50 dark:bg-slate-800/10 border border-brand-blue/10 dark:border-slate-800 rounded-2xl">
-                  <div>
-                    <h5 className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Attendance Status Tools</h5>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">Toggle logs or override attendance online</p>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => addManualLog(selectedStaff.id, 'IN', 'ADMIN_MANUAL_IN')}
-                      disabled={selectedStaff.is_present}
-                      className="px-3.5 py-1.5 bg-brand-green/20 text-brand-green hover:bg-brand-green/30 disabled:opacity-40 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all"
-                    >
-                      Manual In
-                    </button>
-                    <button
-                      onClick={() => addManualLog(selectedStaff.id, 'OUT', 'ADMIN_MANUAL_OUT')}
-                      disabled={!selectedStaff.is_present}
-                      className="px-3.5 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-300 disabled:opacity-40 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all"
-                    >
-                      Manual Out
-                    </button>
-                  </div>
-                </div>
+                {inspectorTab === 'presence' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center font-bold">
+                        <Clock className="w-3.5 h-3.5 mr-1.5 text-brand-green" />
+                        RFID Swipe Transactions Detail
+                      </h4>
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-md font-bold">
+                        Total: {selectedStaff.logs ? Object.keys(selectedStaff.logs).length : 0} swipes
+                      </span>
+                    </div>
 
-                {/* Historical Scan Timeline & Log History */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center font-bold">
-                      <Clock className="w-3.5 h-3.5 mr-1.5 text-brand-green" />
-                      Attendance Logs & Scan Transactions
-                    </h4>
-                    <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500">
-                      Total: {selectedStaff.logs ? Object.keys(selectedStaff.logs).length : 0} logs
-                    </span>
-                  </div>
-
-                  <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden max-h-[220px] overflow-y-auto bg-slate-50/30 dark:bg-slate-900/40">
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {selectedStaff.logs ? (
-                        Object.entries(selectedStaff.logs)
-                          .map(([logId, val]: [string, any]) => ({ id: logId, ...val }))
-                          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                          .map(log => (
-                            <div key={log.id} className="flex items-center justify-between p-3 px-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all">
-                              <div className="flex items-center space-x-3 text-xs">
-                                <span className={cn(
-                                  "w-12 py-1 text-[8px] font-black tracking-widest text-center rounded-lg uppercase inline-block",
-                                  log.status === 'IN' ? "bg-brand-green/10 text-brand-green" : "bg-red-500/10 text-red-500"
-                                )}>
-                                  {log.status === 'IN' ? 'CHECK-IN' : 'CHECK-OUT'}
-                                </span>
-                                <div>
-                                  <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 block">
-                                    {new Date(log.timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' })}
+                    <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden max-h-[350px] overflow-y-auto bg-slate-50/30 dark:bg-slate-900/40">
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {selectedStaff.logs && Object.keys(selectedStaff.logs).length > 0 ? (
+                          Object.entries(selectedStaff.logs)
+                            .map(([logId, val]: [string, any]) => ({ id: logId, ...val }))
+                            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                            .map(log => (
+                              <div key={log.id} className="flex items-center justify-between p-3.5 px-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all">
+                                <div className="flex items-center space-x-3 text-xs">
+                                  <span className={cn(
+                                    "w-14 py-1 text-[8px] font-black tracking-widest text-center rounded-lg uppercase inline-block",
+                                    log.status === 'IN' ? "bg-brand-green/10 text-brand-green" : "bg-red-500/10 text-red-500"
+                                  )}>
+                                    {log.status === 'IN' ? 'CHECK-IN' : 'CHECK-OUT'}
                                   </span>
-                                  <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
-                                    {new Date(log.timestamp).toLocaleDateString('en-LK', { dateStyle: 'medium', timeZone: 'Asia/Colombo' })}
+                                  <div>
+                                    <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 block">
+                                      {new Date(log.timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' })}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
+                                      {new Date(log.timestamp).toLocaleDateString('en-LK', { dateStyle: 'medium', timeZone: 'Asia/Colombo' })}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg tracking-wider">
+                                  {log.method ? log.method.replace(/_/g, ' ') : 'RFID SENSOR'}
+                                </span>
+                              </div>
+                            ))
+                        ) : (
+                          <div className="p-12 text-center text-slate-400 dark:text-slate-600 text-xs italic font-medium">
+                            No scan transactions recorded yet. RFID card events register here instantly.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {inspectorTab === 'logins' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center font-bold">
+                        <Monitor className="w-3.5 h-3.5 mr-1.5 text-brand-blue" />
+                        Web Portal Logins History
+                      </h4>
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-md font-bold">
+                        Total: {totalPortalLogins} sessions
+                      </span>
+                    </div>
+
+                    <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden max-h-[350px] overflow-y-auto bg-slate-50/30 dark:bg-slate-900/40">
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {portalLoginsEntries.length > 0 ? (
+                          portalLoginsEntries.map(log => {
+                            const { browser, os } = parseUserAgent(log.userAgent || '');
+                            return (
+                              <div key={log.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all gap-2">
+                                <div className="flex items-start space-x-3 text-xs">
+                                  <div className="p-1.5 bg-brand-blue/10 text-brand-blue rounded-lg mt-0.5">
+                                    <Monitor className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 block">
+                                      {new Date(log.timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' })}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
+                                      {new Date(log.timestamp).toLocaleDateString('en-LK', { dateStyle: 'medium', timeZone: 'Asia/Colombo' })}
+                                    </span>
+                                    <span className="text-[9.5px] font-bold text-slate-500 dark:text-slate-400 mt-1 block">
+                                      Credential Email: {log.email}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 self-start sm:self-auto items-center">
+                                  <span className="text-[8px] font-black uppercase text-teal-600 dark:text-teal-400 bg-teal-500/10 border border-teal-500/15 px-2 py-0.5 rounded-lg tracking-wider">
+                                    {browser}
+                                  </span>
+                                  <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-250 dark:border-slate-700 px-2 py-0.5 rounded-lg tracking-wider">
+                                    {os}
                                   </span>
                                 </div>
                               </div>
-                              <span className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg tracking-wider">
-                                {log.method ? log.method.replace(/_/g, ' ') : 'RFID SENSOR'}
-                              </span>
-                            </div>
-                          ))
-                      ) : (
-                        <div className="p-8 text-center text-slate-400 dark:text-slate-600 text-xs italic">
-                          No scan transactions recorded yet. Log scans will automatically register here.
-                        </div>
-                      )}
+                            );
+                          })
+                        ) : (
+                          <div className="p-12 text-center text-slate-400 dark:text-slate-600 text-xs italic font-medium">
+                            No web portal credentials logged yet. Portal login history is captured automatically.
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {inspectorTab === 'analytics' && (
+                  <div className="space-y-6">
+                    {/* Metrics Dashboard Row */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-slate-800 dark:text-slate-200">
+                      <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
+                        <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Total Shifts</span>
+                        <span className="text-xl font-bold font-mono block">{totalShiftCount}</span>
+                      </div>
+                      <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
+                        <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Total Hours</span>
+                        <span className="text-xl font-bold font-mono text-brand-green block">{totalHours}h</span>
+                      </div>
+                      <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
+                        <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Avg Shift</span>
+                        <span className="text-xl font-bold font-mono text-brand-blue block">{avgHoursPerShift}h</span>
+                      </div>
+                      <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
+                        <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Web Logins</span>
+                        <span className="text-xl font-bold font-mono text-amber-500 block">{totalPortalLogins}</span>
+                      </div>
+                    </div>
+
+                    {/* Chart section */}
+                    <div className="bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800 p-4">
+                      <div className="mb-4">
+                        <h5 className="text-[10px] font-black uppercase text-slate-705 dark:text-white tracking-widest">Presence Hours by Weekday</h5>
+                        <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Total registered swipe duration aggregated by day</p>
+                      </div>
+
+                      <div className="h-[160px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={dayData}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
+                            <XAxis 
+                              dataKey="name" 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fill: '#94A3B8', fontSize: 9, fontWeight: 750 }}
+                            />
+                            <YAxis 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fill: '#94A3B8', fontSize: 9, fontWeight: 750 }}
+                              dx={-4}
+                            />
+                            <Tooltip
+                              contentStyle={{ 
+                                borderRadius: '12px', 
+                                border: '1px solid #ECEFF1', 
+                                backgroundColor: '#FFFFFF',
+                                fontSize: '10px',
+                                fontWeight: 650,
+                                color: '#1E293B'
+                              }}
+                            />
+                            <Bar 
+                              dataKey="Hours" 
+                              fill="#0ea5e9"
+                              className="fill-brand-blue dark:fill-brand-green"
+                              radius={[4, 4, 0, 0]}
+                              maxBarSize={18}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Report Export Trigger Block */}
+                    <div className="p-4 bg-brand-blue/5 dark:bg-brand-green/5 border border-brand-blue/10 dark:border-brand-green/10 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <h5 className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">Download Attendance File</h5>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-0.5">Generates a CSV spreadsheet compiling deep swipe details and session reports.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleExportCSV}
+                        className="flex items-center justify-center space-x-1.5 px-3.5 py-2 bg-brand-blue dark:bg-brand-green text-white dark:text-slate-950 hover:opacity-90 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm font-bold"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export CSV</span>
+                      </button>
+                    </div>
+
+                  </div>
+                )}
               </div>
 
               <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">

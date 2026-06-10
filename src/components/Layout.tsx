@@ -14,6 +14,9 @@ export function Layout() {
   const location = useLocation();
   const [libraryStatus, setLibraryStatus] = useState<any>(null);
 
+  const ALLOWED_ADMINS = ['admin@seatidle.com', 'genukakisara@gmail.com'];
+  const isAdmin = user && ALLOWED_ADMINS.includes(user.email || '');
+
   useEffect(() => {
     const statusRef = ref(database, 'library_status');
     const unsubscribe = onValue(statusRef, (snapshot) => {
@@ -51,7 +54,7 @@ export function Layout() {
         <div className="flex items-center space-x-2 sm:space-x-4">
           <button 
             onClick={toggleTheme}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all shadow-sm"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all shadow-sm cursor-pointer"
             aria-label="Toggle Theme"
           >
             {theme === 'light' ? <Moon className="w-4 h-4 sm:w-5 sm:h-5" /> : <Sun className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -77,7 +80,7 @@ export function Layout() {
                 <span className={cn(
                   "w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1 sm:mr-2 shrink-0",
                   isOnline 
-                    ? "bg-brand-green animate-pulse shadow-[0_0_8px_var(--color-brand-green)]" 
+                    ? "bg-brand-green animate-pulse shadow-[0_0_8px_var(--color-brand-green)] animate-infinite" 
                     : "bg-red-500"
                 )}></span>
                 <span className="text-[9px] sm:text-xs font-semibold uppercase tracking-wider">
@@ -86,6 +89,17 @@ export function Layout() {
               </div>
             );
           })()}
+
+          {location.pathname !== '/admin' && (
+            <Link 
+              to="/admin"
+              className="p-1.5 sm:p-2 rounded-xl bg-brand-blue/10 dark:bg-brand-green/20 border border-brand-blue/20 dark:border-brand-green/20 text-brand-blue dark:text-brand-green hover:bg-brand-blue/20 dark:hover:bg-brand-green/30 transition-all shadow-sm flex items-center justify-center font-bold text-[9px] sm:text-[10px] uppercase tracking-wider px-2 py-1.5 sm:px-3.5 sm:py-2.5 cursor-pointer gap-1.5"
+              title="Admin Portal"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Admin</span>
+            </Link>
+          )}
 
           {user && (
             <button 
@@ -110,12 +124,18 @@ export function Layout() {
         <Outlet />
       </main>
 
-      {/* Footer */}
+       {/* Footer */}
       <footer className="px-8 py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 transition-colors">
         <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">© 2026 SeatIdle IoT Systems • v1.0.4-stable</p>
         <div className="flex items-center space-x-6">
           {user ? (
             <div className="flex items-center space-x-4">
+              {isAdmin && location.pathname !== '/admin' && (
+                <Link to="/admin" className="text-[10px] font-bold text-brand-blue dark:text-brand-green uppercase tracking-widest flex items-center hover:opacity-80 transition-opacity mr-4">
+                  Admin Access
+                  <ShieldCheck className="w-3 h-3 ml-1" />
+                </Link>
+              )}
               <span className="text-[10px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-widest">
                 ID: {user.email?.split('@')[0]}
               </span>

@@ -64,6 +64,12 @@ interface Staff {
     status: 'IN' | 'OUT';
     method?: string;
   }>;
+  portal_logins?: Record<string, {
+    timestamp: string;
+    email: string;
+    userAgent: string;
+    platform: string;
+  }>;
 }
 
 interface Announcement {
@@ -324,8 +330,32 @@ export function Dashboard() {
   useEffect(() => {
     if (user && user.email) {
       setBookingName(user.email.split('@')[0]);
+
+      if (staffList.length > 0) {
+        const matchingStaff = staffList.find(s => s.email?.toLowerCase() === user.email?.toLowerCase());
+        if (matchingStaff) {
+          const sessionKey = `logged_staff_${matchingStaff.id}`;
+          const parsedLastLogin = sessionStorage.getItem(sessionKey);
+          if (!parsedLastLogin) {
+            const timestamp = new Date().toISOString();
+            const browser = navigator.userAgent;
+            const portalLoginsRef = ref(database, `staff_presence/${matchingStaff.id}/portal_logins`);
+            push(portalLoginsRef, {
+              timestamp,
+              email: user.email,
+              userAgent: browser,
+              platform: navigator.platform || 'Unknown'
+            }).then(() => {
+              sessionStorage.setItem(sessionKey, timestamp);
+              console.log("Recorded staff portal login for:", matchingStaff.name);
+            }).catch(err => {
+              console.error("Failed to log portal login:", err);
+            });
+          }
+        }
+      }
     }
-  }, [user]);
+  }, [user, staffList]);
 
   const [now, setNow] = useState(Date.now());
 
@@ -399,8 +429,10 @@ export function Dashboard() {
     return true; // legacy fallback
   });
   const unusedResCount = allUnusedReservations.length;
-  const availableSeats = Math.max(0, status.capacity - status.occupancy - unusedResCount);
-  const occupancyPercent = Math.round((status.occupancy / status.capacity) * 100);
+  const capacityValue = status?.capacity && status.capacity > 0 ? status.capacity : 50;
+  const occupancyValue = status?.occupancy ?? 0;
+  const availableSeats = Math.max(0, capacityValue - occupancyValue - unusedResCount);
+  const occupancyPercent = Math.min(100, Math.round((occupancyValue / capacityValue) * 100));
 
   const handleBooking = async (e: FormEvent) => {
     e.preventDefault();
@@ -757,9 +789,9 @@ export function Dashboard() {
                       <circle cx="50%" cy="50%" r="41%" strokeWidth="8" stroke="currentColor" className="text-slate-100 dark:text-slate-800" fill="transparent" />
                       <circle cx="50%" cy="50%" r="41%" strokeWidth="10" stroke="currentColor" strokeDasharray={`${2 * Math.PI * 41}`} strokeDashoffset={`${2 * Math.PI * 41 * (1 - occupancyPercent / 100)}`} className={cn("transition-all duration-1000 ease-out", occupancyPercent > 90 ? "text-red-500" : occupancyPercent > 70 ? "text-amber-500" : "text-brand-green")} fill="transparent" strokeLinecap="round" />
                     </svg>
-                    <div className="absolute flex flex-col items-center">
-                      <span className="text-4xl sm:text-5xl font-black text-slate-800 dark:text-white tracking-tighter">{availableSeats}</span>
-                      <span className="text-[8px] font-black uppercase text-slate-400 tracking-widest mt-0.5">Desks Free</span>
+                    <div className="absolute flex flex-col items-center text-center px-1">
+                      <span className="text-3xl sm:text-4xl font-black text-slate-800 dark:text-white tracking-tighter">{availableSeats}</span>
+                      <span className="text-[8px] font-black uppercase text-slate-400 dark:text-slate-300 tracking-wider mt-0.5 leading-tight">Seats Available</span>
                     </div>
                   </div>
 
@@ -785,17 +817,17 @@ export function Dashboard() {
                     </div>
 
                     <div className="grid grid-cols-3 gap-2.5 pt-1.5 text-center">
-                      <div className="bg-slate-50/50 dark:bg-slate-850 p-2 rounded-xl border border-slate-100 dark:border-slate-800/60">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">Present</span>
-                        <p className="text-lg font-black text-slate-800 dark:text-slate-200">{status?.occupancy || 0}</p>
+                      <div className="bg-slate-50/80 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/80">
+                        <span className="text-[9px] font-bold text-slate-500 dark:text-slate-350 uppercase tracking-widest block">Present</span>
+                        <p className="text-lg font-black text-slate-800 dark:text-white">{status?.occupancy || 0}</p>
                       </div>
-                      <div className="bg-slate-50/50 dark:bg-slate-850 p-2 rounded-xl border border-slate-100 dark:border-slate-800/60">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">Booked</span>
-                        <p className="text-lg font-black text-slate-800 dark:text-slate-200">{unusedResCount}</p>
+                      <div className="bg-slate-50/80 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/80">
+                        <span className="text-[9px] font-bold text-slate-500 dark:text-slate-350 uppercase tracking-widest block">Booked</span>
+                        <p className="text-lg font-black text-slate-800 dark:text-white">{unusedResCount}</p>
                       </div>
-                      <div className="bg-slate-50/50 dark:bg-slate-850 p-2 rounded-xl border border-slate-100 dark:border-slate-800/60">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">Total</span>
-                        <p className="text-lg font-black text-slate-800 dark:text-slate-200">{status?.capacity || 0}</p>
+                      <div className="bg-slate-50/80 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/80">
+                        <span className="text-[9px] font-bold text-slate-500 dark:text-slate-350 uppercase tracking-widest block">Total</span>
+                        <p className="text-lg font-black text-slate-800 dark:text-white">{status?.capacity || 0}</p>
                       </div>
                     </div>
                   </div>
@@ -1099,7 +1131,7 @@ export function Dashboard() {
                                   {res.name}
                                 </h4>
                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block font-mono">
-                                  RFID Gate: North Wing 2
+                                  Seat Zone: Main Study Hall
                                 </span>
                               </div>
 
@@ -1208,10 +1240,6 @@ export function Dashboard() {
                   </div>
                 </div>
 
-                <div className="mt-5 pt-3.5 border-t border-slate-100 dark:border-slate-800 bg-amber-500/5 border border-amber-500/10 p-3.5 rounded-xl flex items-start space-x-2 text-[9px] text-amber-600 dark:text-amber-450 leading-relaxed font-bold">
-                  <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                  <p>NOTICE: Desk entries are reserved for University Members. Misuse, no-shows or key sharing may result in security profile restrictions.</p>
-                </div>
               </div>
 
             </div>
