@@ -4,7 +4,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthP
 import { auth, database, ref, onValue, set, push, remove, update, get } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Users, Calendar, Plus, Trash2, LogIn, Lock, LogOut, Mail, Save, AlertTriangle, TrendingUp, BarChart3, PieChart, X, Clock, Phone, SlidersHorizontal, Bell, Download, Info, User, Monitor, Search, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { Settings, Users, Calendar, Plus, Trash2, LogIn, Lock, LogOut, Mail, Save, AlertTriangle, AlertCircle, TrendingUp, BarChart3, PieChart, X, Clock, Phone, SlidersHorizontal, Bell, Download, Info, User, Monitor, Search, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Loader } from '../components/ui/Loader';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
@@ -82,6 +82,7 @@ export function Admin() {
   const [activeReservationsList, setActiveReservationsList] = useState<Reservation[]>([]);
   const [scheduledReservationsList, setScheduledReservationsList] = useState<Reservation[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [reportedIssuesList, setReportedIssuesList] = useState<any[]>([]);
 
   // Merge active and scheduled reservations safely (with uniqueness by ID)
   const reservations = (() => {
@@ -126,9 +127,15 @@ export function Admin() {
   const [announcementError, setAnnouncementError] = useState<string | null>(null);
   const [announcementSuccess, setAnnouncementSuccess] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<'capacity' | 'staff' | 'notices' | 'reports'>('capacity');
+  const [activeTab, setActiveTab] = useState<'capacity' | 'staff' | 'notices' | 'reports' | 'issues'>('capacity');
   const [confirmingStaffId, setConfirmingStaffId] = useState<string | null>(null);
   const [confirmingReservationId, setConfirmingReservationId] = useState<string | null>(null);
+  const [confirmingIssueId, setConfirmingIssueId] = useState<string | null>(null);
+
+  // Student Issues filter states
+  const [issuesSearch, setIssuesSearch] = useState('');
+  const [issuesStatusFilter, setIssuesStatusFilter] = useState<'all' | 'pending' | 'resolved'>('all');
+  const [issuesUrgencyFilter, setIssuesUrgencyFilter] = useState<'all' | 'low' | 'medium' | 'critical'>('all');
 
   // Staff Sub-tab Attendance Register states
   const [staffSubTab, setStaffSubTab] = useState<'list' | 'register'>('list');
@@ -417,6 +424,19 @@ export function Admin() {
       }
     });
 
+    // 6. Student Issues
+    const issuesRef = ref(database, 'reported_issues');
+    const unsubscribeIssues = onValue(issuesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }))
+          .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setReportedIssuesList(list);
+      } else {
+        setReportedIssuesList([]);
+      }
+    });
+
     return () => {
       unsubscribeStatus();
       unsubscribeStaff();
@@ -424,6 +444,7 @@ export function Admin() {
       unsubscribeScheduledRes();
       unsubscribeAnn();
       unsubscribeHistory();
+      unsubscribeIssues();
     };
   }, [user, isAdmin]);
 
@@ -1033,10 +1054,12 @@ export function Admin() {
                 { id: 'capacity', label: 'Capacity & Bookings', icon: SlidersHorizontal },
                 { id: 'staff', label: 'Personnel & Cards', icon: Users },
                 { id: 'notices', label: 'Notices & Alerts', icon: Bell },
-                { id: 'reports', label: 'Usage Reports', icon: BarChart3 }
+                { id: 'reports', label: 'Usage Reports', icon: BarChart3 },
+                { id: 'issues', label: 'Student Issues', icon: AlertTriangle }
               ].map(tab => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
+                const pendingIssuesCount = reportedIssuesList.filter(iss => iss.status === 'pending').length;
                 return (
                   <button
                     key={tab.id}
@@ -1052,6 +1075,11 @@ export function Admin() {
                   >
                     <Icon className={cn("w-4 h-4 shrink-0 transition-transform duration-200", isActive ? "text-brand-blue dark:text-brand-green stroke-[2.5]" : "text-slate-400")} />
                     <span>{tab.label}</span>
+                    {tab.id === 'issues' && pendingIssuesCount > 0 && (
+                      <span className="ml-auto bg-red-500 text-white rounded-full text-[9px] px-2 py-0.5 font-bold tracking-normal leading-normal">
+                        {pendingIssuesCount}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -2301,6 +2329,266 @@ export function Admin() {
                 </div>
               </motion.div>
             )}
+
+            {activeTab === 'issues' && (
+              <motion.div
+                key="issues"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-6"
+              >
+                <div className="bg-white dark:bg-slate-900 rounded-[28px] border border-slate-200/60 dark:border-slate-800 p-6 sm:p-7 shadow-[0_8px_30px_rgb(0,0,0,0.012)] transition-colors">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-805/80 pb-5">
+                    <div>
+                      <h2 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Student Facility & System Issues</h2>
+                      <p className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">Coordinate student reports and physical library hardware fixes</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg border border-slate-200/40 dark:border-slate-700">
+                        Total: {reportedIssuesList.length} Case(s)
+                      </span>
+                      <span className="bg-red-500/10 text-red-650 dark:bg-red-950/20 dark:text-red-400 px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg border border-red-200/30">
+                        {reportedIssuesList.filter(i => i.status === 'pending').length} Pending
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Filter and Search Panels */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                    {/* Search box */}
+                    <div className="relative md:col-span-1">
+                      <Search className="absolute left-3.5 top-3.5 w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={issuesSearch}
+                        onChange={(e) => setIssuesSearch(e.target.value)}
+                        placeholder="Search cases, emails..."
+                        className="w-full bg-slate-50 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Status select */}
+                    <div>
+                      <select
+                        value={issuesStatusFilter}
+                        onChange={(e) => setIssuesStatusFilter(e.target.value as any)}
+                        className="w-full bg-slate-50 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+                      >
+                        <option value="all">All Statuses</option>
+                        <option value="pending">Awaiting Action</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                    </div>
+
+                    {/* Urgency select */}
+                    <div>
+                      <select
+                        value={issuesUrgencyFilter}
+                        onChange={(e) => setIssuesUrgencyFilter(e.target.value as any)}
+                        className="w-full bg-slate-50 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+                      >
+                        <option value="all font-semibold">All Urgencies</option>
+                        <option value="low">Low Priority</option>
+                        <option value="medium">Medium Priority</option>
+                        <option value="critical">Critical Priority</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Issues Lists Render */}
+                {reportedIssuesList.filter(issue => {
+                  if (issuesStatusFilter !== 'all' && issue.status !== issuesStatusFilter) return false;
+                  if (issuesUrgencyFilter !== 'all' && issue.urgency !== issuesUrgencyFilter) return false;
+                  if (issuesSearch.trim() !== '') {
+                    const q = issuesSearch.toLowerCase();
+                    const matchDesc = (issue.description || '').toLowerCase().includes(q);
+                    const matchEmail = (issue.reporterEmail || '').toLowerCase().includes(q);
+                    const matchType = (issue.issueType || '').toLowerCase().includes(q);
+                    return matchDesc || matchEmail || matchType;
+                  }
+                  return true;
+                }).length === 0 ? (
+                  <div className="bg-white dark:bg-slate-900 rounded-[28px] border border-slate-200/60 dark:border-slate-800 p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.012)]">
+                    <Check className="w-12 h-12 text-slate-300 dark:text-slate-755 mx-auto mb-3" />
+                    <h3 className="text-sm font-black text-slate-800 dark:text-slate-205 uppercase tracking-wider">All Clear</h3>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 max-w-sm mx-auto leading-relaxed mt-1">
+                      No student issues or facility flags match the current filters. Your library status is completely synchronized!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {reportedIssuesList.filter(issue => {
+                      if (issuesStatusFilter !== 'all' && issue.status !== issuesStatusFilter) return false;
+                      if (issuesUrgencyFilter !== 'all' && issue.urgency !== issuesUrgencyFilter) return false;
+                      if (issuesSearch.trim() !== '') {
+                        const q = issuesSearch.toLowerCase();
+                        const matchDesc = (issue.description || '').toLowerCase().includes(q);
+                        const matchEmail = (issue.reporterEmail || '').toLowerCase().includes(q);
+                        const matchType = (issue.issueType || '').toLowerCase().includes(q);
+                        return matchDesc || matchEmail || matchType;
+                      }
+                      return true;
+                    }).map((issue) => {
+                      const formattedDate = new Date(issue.createdAt).toLocaleDateString([], {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                      });
+
+                      return (
+                        <div
+                          key={issue.id}
+                          className={cn(
+                            "bg-white dark:bg-slate-900 border rounded-[24px] overflow-hidden shadow-sm flex flex-col justify-between transition-all",
+                            issue.status === 'resolved'
+                              ? "border-slate-200/50 dark:border-slate-800/50 opacity-75 animate-none"
+                              : issue.urgency === 'critical'
+                              ? "border-red-200 dark:border-red-900/40 ring-1 ring-red-500/10 dark:ring-red-500/5"
+                              : issue.urgency === 'medium'
+                              ? "border-amber-200 dark:border-amber-900/30"
+                              : "border-slate-200/60 dark:border-slate-800"
+                          )}
+                        >
+                          {/* Color Top Border Accent based on priority */}
+                          <div className={cn(
+                            "h-1 w-full",
+                            issue.status === 'resolved'
+                              ? 'bg-slate-250 dark:bg-slate-800'
+                              : issue.urgency === 'critical'
+                              ? 'bg-red-500 font-bold'
+                              : issue.urgency === 'medium'
+                              ? 'bg-amber-500'
+                              : 'bg-brand-blue'
+                          )} />
+
+                          <div className="p-5 flex-1 space-y-3.5">
+                            {/* Meta Indicators */}
+                            <div className="flex items-center justify-between">
+                              <span className={cn(
+                                "text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border",
+                                issue.issueType === 'occupancy_accuracy'
+                                  ? "bg-brand-blue/10 dark:bg-brand-blue/20 text-brand-blue dark:text-teal-400 border-brand-blue/15"
+                                  : issue.issueType === 'facility'
+                                  ? "bg-amber-500/10 dark:bg-amber-955/20 text-amber-600 dark:text-amber-450 border-amber-500/15"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200/60"
+                              )}>
+                                {issue.issueType === 'occupancy_accuracy' ? 'Occupancy Sync Check' : issue.issueType === 'facility' ? 'Facility Fault' : 'General Area Issue'}
+                              </span>
+
+                              <span className={cn(
+                                "px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1",
+                                issue.status === 'resolved'
+                                  ? "bg-brand-green/10 text-brand-green dark:bg-brand-green/20"
+                                  : "bg-amber-500/10 text-amber-550 dark:bg-amber-955/30 font-bold"
+                              )}>
+                                <span className={cn(
+                                  "w-1.5 h-1.5 rounded-full",
+                                  issue.status === 'resolved' ? "bg-brand-green" : "bg-amber-400 animate-pulse"
+                                )} />
+                                {issue.status === 'resolved' ? 'Resolved' : 'Pending Action'}
+                              </span>
+                            </div>
+
+                            {/* Details text area */}
+                            <div className="space-y-1">
+                              <p className="text-[11px] text-slate-650 dark:text-slate-350 font-medium leading-relaxed bg-slate-50/50 dark:bg-slate-950/40 p-2.5 rounded-xl border border-slate-100/30 dark:border-slate-850">
+                                {issue.description}
+                              </p>
+                            </div>
+
+                            {/* reporter metadata details */}
+                            <div className="flex items-center justify-between pt-1 text-[9px] text-slate-400 dark:text-slate-500 border-t border-slate-100/40 dark:border-slate-850 font-medium font-sans">
+                              <div className="flex items-center gap-1">
+                                <Mail className="w-2.5 h-2.5 shrink-0" />
+                                <span className="font-mono font-bold truncate max-w-[120px]">{issue.reporterEmail}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5 shrink-0" />
+                                <span>{formattedDate}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Control Actions footer */}
+                          <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-850 flex items-center gap-2">
+                            {issue.status === 'pending' ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await update(ref(database, `reported_issues/${issue.id}`), { status: 'resolved' });
+                                }}
+                                className="flex-1 bg-brand-green hover:bg-brand-green/95 text-white dark:bg-brand-green/20 dark:hover:bg-brand-green/35 dark:text-brand-green border border-brand-green/10 dark:border-brand-green/20 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-all active:scale-95 shadow-sm"
+                              >
+                                <Check className="w-3 h-3" />
+                                Mark as Fixed
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await update(ref(database, `reported_issues/${issue.id}`), { status: 'pending' });
+                                }}
+                                className="flex-1 bg-slate-200 hover:bg-slate-250 dark:bg-slate-800 dark:hover:bg-slate-705 text-slate-700 dark:text-slate-350 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-all active:scale-95"
+                              >
+                                <AlertCircle className="w-3 h-3" />
+                                Reopen Case
+                              </button>
+                            )}
+
+                            {confirmingIssueId === issue.id ? (
+                              <div className="flex items-center gap-1.5 shrink-0 animate-in fade-in zoom-in-95 duration-100">
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await remove(ref(database, `reported_issues/${issue.id}`));
+                                    } catch (err) {
+                                      console.error("Delete issue error:", err);
+                                    } finally {
+                                      setConfirmingIssueId(null);
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 text-[9px] font-black uppercase text-white bg-red-500 hover:bg-red-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                                >
+                                  Del!
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConfirmingIssueId(null);
+                                  }}
+                                  className="px-2.5 py-1 text-[9px] font-black uppercase text-slate-500 bg-slate-150 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmingIssueId(issue.id);
+                                }}
+                                className="p-1.5 bg-red-100 hover:bg-red-200 text-red-650 dark:bg-red-950/20 dark:hover:bg-red-950/40 dark:text-red-450 rounded-lg transition-colors cursor-pointer border border-red-500/10 shrink-0"
+                                title="Delete Case"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            )}
       </AnimatePresence>
 
         </div> {/* Content Column end */}
@@ -2313,10 +2601,12 @@ export function Admin() {
           { id: 'staff', label: 'Staff', icon: Users },
           { id: 'notices', label: 'Notices', icon: Bell },
           { id: 'reports', label: 'Reports', icon: BarChart3 },
+          { id: 'issues', label: 'Issues', icon: AlertTriangle },
           { id: 'exit', label: 'Exit', icon: LogOut, isLink: true }
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = tab.id === 'exit' ? false : activeTab === tab.id;
+          const pendingIssuesCount = reportedIssuesList.filter(iss => iss.status === 'pending').length;
           
           if (tab.isLink) {
             return (
@@ -2350,12 +2640,19 @@ export function Admin() {
                 />
               )}
 
-              <Icon className={cn(
-                "w-5 h-5 transition-transform duration-200", 
-                isActive 
-                  ? "text-brand-blue dark:text-brand-green scale-110 stroke-[2.5]" 
-                  : "text-slate-400 dark:text-slate-500"
-              )} />
+              <div className="relative">
+                <Icon className={cn(
+                  "w-5 h-5 transition-transform duration-200", 
+                  isActive 
+                    ? "text-brand-blue dark:text-brand-green scale-110 stroke-[2.5]" 
+                    : "text-slate-400 dark:text-slate-500"
+                )} />
+                {tab.id === 'issues' && pendingIssuesCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 bg-red-500 text-white rounded-full text-[7px] w-4.5 h-4.5 flex items-center justify-center font-bold">
+                    {pendingIssuesCount}
+                  </span>
+                )}
+              </div>
               
               <span className={cn(
                 "text-[9px] font-black uppercase tracking-wider mt-1",

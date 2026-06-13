@@ -78,12 +78,12 @@ export function Layout() {
                   : "bg-red-500/10 border-red-500/30 text-red-500 dark:bg-red-950/25 dark:border-red-900/30"
               )}>
                 <span className={cn(
-                  "w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1 sm:mr-2 shrink-0",
+                  "w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-0 min-[400px]:mr-2 shrink-0",
                   isOnline 
                     ? "bg-brand-green animate-pulse shadow-[0_0_8px_var(--color-brand-green)] animate-infinite" 
                     : "bg-red-500"
                 )}></span>
-                <span className="text-[9px] sm:text-xs font-semibold uppercase tracking-wider">
+                <span className="hidden min-[400px]:inline text-[9px] sm:text-xs font-semibold uppercase tracking-wider">
                   {isOnline ? "Online" : "Offline"}
                 </span>
               </div>
@@ -93,7 +93,7 @@ export function Layout() {
           {location.pathname !== '/admin' && (
             <Link 
               to="/admin"
-              className="p-1.5 sm:p-2 rounded-xl bg-brand-blue/10 dark:bg-brand-green/20 border border-brand-blue/20 dark:border-brand-green/20 text-brand-blue dark:text-brand-green hover:bg-brand-blue/20 dark:hover:bg-brand-green/30 transition-all shadow-sm flex items-center justify-center font-bold text-[9px] sm:text-[10px] uppercase tracking-wider px-2 py-1.5 sm:px-3.5 sm:py-2.5 cursor-pointer gap-1.5"
+              className="hidden md:flex p-1.5 sm:p-2 rounded-xl bg-brand-blue/10 dark:bg-brand-green/20 border border-brand-blue/20 dark:border-brand-green/20 text-brand-blue dark:text-brand-green hover:bg-brand-blue/20 dark:hover:bg-brand-green/30 transition-all shadow-sm items-center justify-center font-bold text-[9px] sm:text-[10px] uppercase tracking-wider px-2 py-1.5 sm:px-3.5 sm:py-2.5 cursor-pointer gap-1.5"
               title="Admin Portal"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -112,8 +112,8 @@ export function Layout() {
             </button>
           )}
 
-          <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-2 sm:pl-4">
-            <p className="hidden xs:block text-[8px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-tighter">Central Library</p>
+          <div className="hidden sm:block text-right border-l border-slate-200 dark:border-slate-700 pl-2 sm:pl-4">
+            <p className="text-[8px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-tighter">Central Library</p>
             <p className="text-[10px] sm:text-sm font-mono font-bold text-slate-700 dark:text-slate-200">{timeStr}</p>
           </div>
         </div>
@@ -126,7 +126,7 @@ export function Layout() {
 
        {/* Footer */}
       <footer className="px-8 py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 transition-colors">
-        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">© 2026 SeatIdle IoT Systems • v1.0.4-stable</p>
+        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">© 2026 SeatIdle IoT Systems • v1.0</p>
         <div className="flex items-center space-x-6">
           {user ? (
             <div className="flex items-center space-x-4">

@@ -39,5 +39,10 @@ service cloud.firestore {
     match /occupancy_history/{historyId} {
       allow read, write: if true;
     }
+
+    // Reported Issues: Anyone can read & write
+    match /reported_issues/{issueId} {
+      allow read, write: if true;
+    }
   }
 }

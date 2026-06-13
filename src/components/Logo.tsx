@@ -67,7 +67,7 @@ export function Logo({ className, showText = true }: LogoProps) {
         </svg>
       </div>
       {showText && (
-        <div className="flex font-bold text-2xl tracking-tighter">
+        <div className="hidden min-[400px]:flex font-bold text-xl sm:text-2xl tracking-tighter">
           <span className="text-[#125688] dark:text-slate-100 transition-colors">Seat</span>
           <span className="text-[#7ce121] transition-colors">Idle</span>
         </div>

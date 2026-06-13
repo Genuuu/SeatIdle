@@ -33,6 +33,22 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "When the reservation was created." }
       },
       "required": ["name", "time", "is_used", "createdAt"]
+    },
+    "ReportedIssue": {
+      "title": "Reported Issue",
+      "description": "An issue or feedback reported by a student regarding desk accuracy or library facilities.",
+      "type": "object",
+      "properties": {
+        "issueType": { "type": "string", "description": "Type of issue (occupancy_accuracy, facility, other)." },
+        "zone": { "type": "string", "description": "Library zone where the issue occurred." },
+        "deskNum": { "type": "string", "description": "The specific desk number or 'other'." },
+        "description": { "type": "string", "description": "Details about the reported issue." },
+        "urgency": { "type": "string", "description": "Urgency level of the issue (low, medium, critical)." },
+        "reporterEmail": { "type": "string", "description": "Email of the student filing the report." },
+        "status": { "type": "string", "description": "Current resolution status (pending, resolved)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of when the report was submitted." }
+      },
+      "required": ["issueType", "zone", "description", "urgency", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -63,6 +79,10 @@
     "occupancy_history/{historyId}": {
       "schema": "object",
       "description": "Collection of library occupancies logged at various timestamp milestones."
+    },
+    "reported_issues/{issueId}": {
+      "schema": "ReportedIssue",
+      "description": "Collection of facility issues and occupancy feedback reports."
     }
   }
 }
