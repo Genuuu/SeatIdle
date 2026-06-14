@@ -64,6 +64,10 @@
       "schema": "object",
       "description": "Historical log entries for individual staff presence transitions."
     },
+    "staff_presence/{staffId}/portal_logins/{loginId}": {
+      "schema": "object",
+      "description": "Historical login tracking for staff web portal sessions."
+    },
     "active_reservations/{reservationId}": {
       "schema": "ActiveReservation",
       "description": "Collection of active student reservations."

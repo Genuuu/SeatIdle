@@ -115,7 +115,7 @@ export function Admin() {
 
   // Selected Staff inspection and edit states
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
-  const [inspectorTab, setInspectorTab] = useState<'profile' | 'presence' | 'logins' | 'analytics'>('profile');
+  const [inspectorTab, setInspectorTab] = useState<'profile' | 'presence' | 'analytics'>('profile');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editStaffName, setEditStaffName] = useState('');
   const [editStaffRole, setEditStaffRole] = useState('');
@@ -2851,7 +2851,6 @@ export function Admin() {
                 {[
                   { id: 'profile', label: 'Profile', icon: User },
                   { id: 'presence', label: 'RFID Scans', icon: Clock },
-                  { id: 'logins', label: 'Portal Logins', icon: Monitor },
                   { id: 'analytics', label: 'Analytics', icon: BarChart3 }
                 ].map((t) => {
                   const IconComponent = t.icon;
@@ -3086,66 +3085,10 @@ export function Admin() {
                   </div>
                 )}
 
-                {inspectorTab === 'logins' && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center font-bold">
-                        <Monitor className="w-3.5 h-3.5 mr-1.5 text-brand-blue" />
-                        Web Portal Logins History
-                      </h4>
-                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-md font-bold">
-                        Total: {totalPortalLogins} sessions
-                      </span>
-                    </div>
-
-                    <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden max-h-[350px] overflow-y-auto bg-slate-50/30 dark:bg-slate-900/40">
-                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {portalLoginsEntries.length > 0 ? (
-                          portalLoginsEntries.map(log => {
-                            const { browser, os } = parseUserAgent(log.userAgent || '');
-                            return (
-                              <div key={log.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all gap-2">
-                                <div className="flex items-start space-x-3 text-xs">
-                                  <div className="p-1.5 bg-brand-blue/10 text-brand-blue rounded-lg mt-0.5">
-                                    <Monitor className="w-3.5 h-3.5" />
-                                  </div>
-                                  <div>
-                                    <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 block">
-                                      {new Date(log.timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' })}
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
-                                      {new Date(log.timestamp).toLocaleDateString('en-LK', { dateStyle: 'medium', timeZone: 'Asia/Colombo' })}
-                                    </span>
-                                    <span className="text-[9.5px] font-bold text-slate-500 dark:text-slate-400 mt-1 block">
-                                      Credential Email: {log.email}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5 self-start sm:self-auto items-center">
-                                  <span className="text-[8px] font-black uppercase text-teal-600 dark:text-teal-400 bg-teal-500/10 border border-teal-500/15 px-2 py-0.5 rounded-lg tracking-wider">
-                                    {browser}
-                                  </span>
-                                  <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-250 dark:border-slate-700 px-2 py-0.5 rounded-lg tracking-wider">
-                                    {os}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="p-12 text-center text-slate-400 dark:text-slate-600 text-xs italic font-medium">
-                            No web portal credentials logged yet. Portal login history is captured automatically.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {inspectorTab === 'analytics' && (
                   <div className="space-y-6">
                     {/* Metrics Dashboard Row */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-slate-800 dark:text-slate-200">
+                    <div className="grid grid-cols-3 gap-3 text-slate-800 dark:text-slate-200">
                       <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
                         <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Total Shifts</span>
                         <span className="text-xl font-bold font-mono block">{totalShiftCount}</span>
@@ -3157,10 +3100,6 @@ export function Admin() {
                       <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
                         <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Avg Shift</span>
                         <span className="text-xl font-bold font-mono text-brand-blue block">{avgHoursPerShift}h</span>
-                      </div>
-                      <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
-                        <span className="text-slate-400 dark:text-slate-500 block text-[8px] uppercase font-black tracking-widest mb-1">Web Logins</span>
-                        <span className="text-xl font-bold font-mono text-amber-500 block">{totalPortalLogins}</span>
                       </div>
                     </div>
 

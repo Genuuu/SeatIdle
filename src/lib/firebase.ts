@@ -118,21 +118,79 @@ export function ref(dbVar: any, path: string) {
   };
 }
 
+export async function fetchSubcollectionsForDoc(docId: string, docData: any) {
+  const updatedData = { ...docData };
+  try {
+    const logsCol = collection(db, 'staff_presence', docId, 'logs');
+    const logsSnap = await getDocs(logsCol);
+    if (!logsSnap.empty) {
+      const logsObj: Record<string, any> = {};
+      logsSnap.forEach(subDoc => {
+        logsObj[subDoc.id] = subDoc.data();
+      });
+      updatedData.logs = logsObj;
+    } else {
+      updatedData.logs = {};
+    }
+  } catch (err) {
+    console.error(`Error fetching logs subcollection for ${docId}:`, err);
+    updatedData.logs = {};
+  }
+
+  try {
+    const portalCol = collection(db, 'staff_presence', docId, 'portal_logins');
+    const portalSnap = await getDocs(portalCol);
+    if (!portalSnap.empty) {
+      const portalObj: Record<string, any> = {};
+      portalSnap.forEach(subDoc => {
+        portalObj[subDoc.id] = subDoc.data();
+      });
+      updatedData.portal_logins = portalObj;
+    } else {
+      updatedData.portal_logins = {};
+    }
+  } catch (err) {
+    console.error(`Error fetching portal_logins subcollection for ${docId}:`, err);
+    updatedData.portal_logins = {};
+  }
+
+  return updatedData;
+}
+
 export async function get(dbRef: any) {
   const parsed = parsePath(dbRef.path);
   try {
     if (parsed.type === 'doc') {
       const docRef = doc(db, parsed.col, parsed.docId);
       const snap = await getDoc(docRef);
-      const val = snap.exists() ? snap.data() : null;
+      let val = snap.exists() ? snap.data() : null;
+      if (val && parsed.col === 'staff_presence') {
+        val = await fetchSubcollectionsForDoc(parsed.docId, val);
+      }
       return new DataSnapshot(parsed.docId, val);
     } else if (parsed.type === 'col') {
       const colRef = collection(db, parsed.colPath);
       const querySnapshot = await getDocs(colRef);
       const data: Record<string, any> = {};
+      const promises: Promise<any>[] = [];
+
       querySnapshot.forEach(docSnap => {
-        data[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+        const docId = docSnap.id;
+        const docData = { id: docId, ...docSnap.data() };
+        data[docId] = docData;
+        if (parsed.colPath === 'staff_presence') {
+          promises.push(
+            fetchSubcollectionsForDoc(docId, docData).then(updated => {
+              data[docId] = updated;
+            })
+          );
+        }
       });
+
+      if (promises.length > 0) {
+        await Promise.all(promises);
+      }
+
       return new DataSnapshot(parsed.colPath.split('/').pop() || null, Object.keys(data).length > 0 ? data : null);
     }
     return new DataSnapshot(null, null);
@@ -151,8 +209,11 @@ export function onValue(
     const docRef = doc(db, parsed.col, parsed.docId);
     return onSnapshot(
       docRef,
-      (snap) => {
-        const val = snap.exists() ? snap.data() : null;
+      async (snap) => {
+        let val = snap.exists() ? snap.data() : null;
+        if (val && parsed.col === 'staff_presence') {
+          val = await fetchSubcollectionsForDoc(parsed.docId, val);
+        }
         callback(new DataSnapshot(parsed.docId, val));
       },
       (error) => {
@@ -171,11 +232,28 @@ export function onValue(
     const colRef = collection(db, parsed.colPath);
     return onSnapshot(
       colRef,
-      (querySnapshot) => {
+      async (querySnapshot) => {
         const data: Record<string, any> = {};
+        const promises: Promise<any>[] = [];
+
         querySnapshot.forEach(docSnap => {
-          data[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+          const docId = docSnap.id;
+          const docData = { id: docId, ...docSnap.data() };
+          data[docId] = docData;
+
+          if (parsed.colPath === 'staff_presence') {
+            promises.push(
+              fetchSubcollectionsForDoc(docId, docData).then(updated => {
+                data[docId] = updated;
+              })
+            );
+          }
         });
+
+        if (promises.length > 0) {
+          await Promise.all(promises);
+        }
+
         callback(new DataSnapshot(parsed.colPath.split('/').pop() || null, Object.keys(data).length > 0 ? data : null));
       },
       (error) => {

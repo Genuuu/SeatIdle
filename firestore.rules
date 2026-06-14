@@ -11,13 +11,19 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Staff Presence & Logs: Anyone can read & write
+    // Staff Presence: Anyone can read & write
     match /staff_presence/{staffId} {
       allow read, write: if true;
-      
-      match /logs/{logId} {
-        allow read, write: if true;
-      }
+    }
+
+    // Staff Logs: Anyone can read & write
+    match /staff_presence/{staffId}/logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Staff Portal Logins: Anyone can read & write
+    match /staff_presence/{staffId}/portal_logins/{loginId} {
+      allow read, write: if true;
     }
 
     // Active Reservations: Anyone can read & write
