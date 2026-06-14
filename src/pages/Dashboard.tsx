@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Loader } from '../components/ui/Loader';
-import { AreaChart, Area, CartesianGrid, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, AreaChart, Area, CartesianGrid, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface LibraryStatus {
   capacity: number;
@@ -210,6 +210,12 @@ export function Dashboard() {
             last_updated: new Date().toISOString()
           });
 
+          // Log to occupancy history immediately
+          push(ref(database, 'occupancy_history'), {
+            timestamp: new Date().toISOString(),
+            occupancy: nextOcc
+          }).catch(err => console.error("History log error:", err));
+
           setTerminalStatus('success');
           setTerminalMessage(`Granted: Welcome, ${foundRes.name}!`);
           setGateUnlocked(true);
@@ -250,6 +256,12 @@ export function Dashboard() {
           occupancy: nextOcc,
           last_updated: new Date().toISOString()
         });
+
+        // Log to occupancy history immediately
+        push(ref(database, 'occupancy_history'), {
+          timestamp: new Date().toISOString(),
+          occupancy: nextOcc
+        }).catch(err => console.error("History log error:", err));
 
         setTerminalStatus('success');
         setTerminalMessage(action === 'in' ? 'Guest check-in recorded.' : 'Guest check-out recorded.');

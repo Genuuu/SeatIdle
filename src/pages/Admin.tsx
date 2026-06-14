@@ -140,28 +140,46 @@ export function Admin() {
   // Staff Sub-tab Attendance Register states
   const [staffSubTab, setStaffSubTab] = useState<'list' | 'register'>('list');
   const [registerSearch, setRegisterSearch] = useState('');
-  const [selectedFilterDate, setSelectedFilterDate] = useState(() => {
-    try {
-      const colomboDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
-      if (colomboDate && colomboDate.length === 10 && colomboDate.includes('-')) {
-        return colomboDate;
-      }
-    } catch (e) {}
-    return new Date().toISOString().split('T')[0];
-  });
 
   const getColomboDateString = (isoString?: string) => {
     if (!isoString) return '';
     try {
-      return new Date(isoString).toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
-    } catch (e) {
-      try {
-        return new Date(isoString).toISOString().split('T')[0];
-      } catch (err) {
-        return '';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return '';
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Colombo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const parts = formatter.formatToParts(d);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      if (year && month && day) {
+        const mm = month.padStart(2, '0');
+        const dd = day.padStart(2, '0');
+        return `${year}-${mm}-${dd}`;
       }
+    } catch (e) {
+      console.error("Colombo timezone conversion error:", e);
+    }
+    try {
+      return new Date(isoString).toISOString().split('T')[0];
+    } catch (err) {
+      return '';
     }
   };
+
+  const [selectedFilterDate, setSelectedFilterDate] = useState(() => {
+    try {
+      const colomboDay = getColomboDateString(new Date().toISOString());
+      if (colomboDay && colomboDay.length === 10) {
+        return colomboDay;
+      }
+    } catch (e) {}
+    return new Date().toISOString().split('T')[0];
+  });
 
   const formatDuration = (ms: number) => {
     if (!ms || ms < 0) return '0 min';
@@ -450,19 +468,26 @@ export function Admin() {
 
   // History Logger logic
   useEffect(() => {
-    if (!isAdmin || !status.occupancy) return;
+    if (!isAdmin || status.occupancy === undefined || status.occupancy === null) return;
     
-    // Auto-log history every 30 mins or on manual update
+    // Auto-log history whenever occupancy changes, or every 30 mins as a fallback
+    const lastLogOcc = localStorage.getItem('last_logged_occupancy_val');
     const lastLogTime = localStorage.getItem('last_history_log');
     const now = Date.now();
     
-    if (!lastLogTime || (now - parseInt(lastLogTime)) > 1000 * 60 * 30) {
+    const currentOcc = status.occupancy;
+    const isDifferent = lastLogOcc === null || parseInt(lastLogOcc) !== currentOcc;
+    const isStale = !lastLogTime || (now - parseInt(lastLogTime)) > 1000 * 60 * 30;
+    
+    if (isDifferent || isStale) {
       const historyRef = ref(database, 'occupancy_history');
       push(historyRef, {
         timestamp: new Date().toISOString(),
-        occupancy: status.occupancy
-      });
-      localStorage.setItem('last_history_log', now.toString());
+        occupancy: currentOcc
+      }).then(() => {
+        localStorage.setItem('last_logged_occupancy_val', currentOcc.toString());
+        localStorage.setItem('last_history_log', now.toString());
+      }).catch(err => console.error("History logging error:", err));
     }
   }, [status.occupancy, isAdmin]);
 
@@ -594,11 +619,11 @@ export function Admin() {
   useEffect(() => {
     if (selectedStaff) {
       const updated = staffList.find(s => s.id === selectedStaff.id);
-      if (updated) {
+      if (updated && JSON.stringify(updated) !== JSON.stringify(selectedStaff)) {
         setSelectedStaff(updated);
       }
     }
-  }, [staffList]);
+  }, [staffList, selectedStaff]);
 
   const toggleStaffPresence = async (id: string, current: boolean) => {
     try {
@@ -944,7 +969,19 @@ export function Admin() {
     rawHistoryData.forEach(item => {
       if (!item.fullDate) return;
       const date = new Date(item.fullDate);
-      const hour = date.getHours();
+      
+      let hourStr = '0';
+      try {
+        hourStr = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Colombo',
+          hour: 'numeric',
+          hour12: false
+        }).format(date);
+      } catch (err) {
+        hourStr = date.getHours().toString();
+      }
+      const hour = (parseInt(hourStr) % 24) || 0;
+      
       hourlyDataMap[hour].total += item.occupancy;
       hourlyDataMap[hour].count += 1;
     });
@@ -1317,7 +1354,7 @@ export function Admin() {
                         <div>
                           <h4 className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest">Active Attendance Register</h4>
                           <h2 className="text-sm font-semibold text-slate-800 dark:text-white mt-0.5">
-                            {new Date(selectedFilterDate).toLocaleDateString('en-LK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Colombo' })}
+                            {new Date(selectedFilterDate).toLocaleDateString('en-LK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}
                           </h2>
                         </div>
                       </div>
@@ -1364,7 +1401,7 @@ export function Admin() {
                           type="button"
                           onClick={() => {
                             try {
-                              const colomboDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                              const colomboDate = getColomboDateString(new Date().toISOString());
                               setSelectedFilterDate(colomboDate);
                             } catch (e) {
                               setSelectedFilterDate(new Date().toISOString().split('T')[0]);
@@ -1416,10 +1453,21 @@ export function Admin() {
                                   }
                                 }
                               }
+                              const todayStr = getColomboDateString(new Date().toISOString());
                               if (activeInTime !== null) {
-                                const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
                                 if (selectedFilterDate === todayStr) {
                                   totalMs += Math.max(0, Date.now() - activeInTime);
+                                }
+                              } else if (selectedFilterDate === todayStr && staff.is_present && dateLogs.length === 0) {
+                                const allLogs = staff.logs 
+                                  ? Object.entries(staff.logs)
+                                      .map(([id, val]: [string, any]) => ({ id, ...val }))
+                                      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                  : [];
+                                const globalInLogs = allLogs.filter(l => l.status === 'IN');
+                                if (globalInLogs.length > 0) {
+                                  const lastInTime = new Date(globalInLogs[globalInLogs.length - 1].timestamp).getTime();
+                                  totalMs += Math.max(0, Date.now() - lastInTime);
                                 }
                               }
                               const hrs = (totalMs / (1000 * 60 * 60)).toFixed(2);
@@ -1427,6 +1475,8 @@ export function Admin() {
                               let stat = 'Absent';
                               if (dateLogs.length > 0) {
                                 stat = dateLogs[dateLogs.length - 1].status === 'IN' ? 'Present Now' : 'Completed Shift';
+                              } else if (selectedFilterDate === todayStr && staff.is_present) {
+                                stat = 'Present Now';
                               }
                               
                               return [
@@ -1468,6 +1518,8 @@ export function Admin() {
                       let activeCount = 0;
                       let presentCount = 0;
                       let totalLoggedMs = 0;
+                      const todayStr = getColomboDateString(new Date().toISOString());
+                      const isToday = selectedFilterDate === todayStr;
 
                       staffList.forEach(staff => {
                         const dateLogs = staff.logs 
@@ -1482,6 +1534,9 @@ export function Admin() {
                           if (lastLog.status === 'IN') {
                             presentCount += 1;
                           }
+                        } else if (isToday && staff.is_present) {
+                          activeCount += 1;
+                          presentCount += 1;
                         }
 
                         // Calculate total hours
@@ -1507,9 +1562,19 @@ export function Admin() {
                           }
                         }
                         if (activeInTime !== null) {
-                          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
-                          if (selectedFilterDate === todayStr) {
+                          if (isToday) {
                             totalMs += Math.max(0, Date.now() - activeInTime);
+                          }
+                        } else if (isToday && staff.is_present && sortedLogs.length === 0) {
+                          const allLogs = staff.logs 
+                            ? Object.entries(staff.logs)
+                                .map(([id, val]: [string, any]) => ({ id, ...val }))
+                                .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                            : [];
+                          const globalInLogs = allLogs.filter(l => l.status === 'IN');
+                          if (globalInLogs.length > 0) {
+                            const lastInTime = new Date(globalInLogs[globalInLogs.length - 1].timestamp).getTime();
+                            totalMs += Math.max(0, Date.now() - lastInTime);
                           }
                         }
                         totalLoggedMs += totalMs;
@@ -1608,10 +1673,25 @@ export function Admin() {
                                       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
                                   : [];
                                 
+                                const allInLogs = staff.logs 
+                                  ? Object.entries(staff.logs)
+                                      .map(([id, val]: [string, any]) => ({ id, ...val }))
+                                      .filter(l => l.status === 'IN')
+                                      .sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                  : [];
+                                
+                                const todayStr = getColomboDateString(new Date().toISOString());
+                                const isTodayValue = selectedFilterDate === todayStr;
+                                
                                 const inLogs = dateLogs.filter(l => l.status === 'IN');
                                 const outLogs = dateLogs.filter(l => l.status === 'OUT');
                                 
-                                const firstInTime = inLogs.length > 0 
+                                const firstInTime = inLogs.length > 0
+                                  ? new Date(inLogs[0].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' })
+                                  : (isTodayValue && staff.is_present && allInLogs.length > 0)
+                                    ? new Date(allInLogs[allInLogs.length - 1].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' })
+                                    : null;
+                                const dummyFirstInVal = false ? "" : inLogs.length > 0 
                                   ? new Date(inLogs[0].timestamp).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Colombo' }) 
                                   : null;
                                   
@@ -1621,6 +1701,18 @@ export function Admin() {
 
                                 // Shift calculation state
                                 let totalMs = 0;
+                                if (selectedFilterDate === todayStr && staff.is_present && dateLogs.length === 0) {
+                                  const allLogs = staff.logs 
+                                    ? Object.entries(staff.logs)
+                                        .map(([id, val]: [string, any]) => ({ id, ...val }))
+                                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                    : [];
+                                  const globalInLogs = allLogs.filter(l => l.status === 'IN');
+                                  if (globalInLogs.length > 0) {
+                                    const lastInTime = new Date(globalInLogs[globalInLogs.length - 1].timestamp).getTime();
+                                    totalMs += Math.max(0, Date.now() - lastInTime);
+                                  }
+                                }
                                 let activeInTime: number | null = null;
                                 for (const log of dateLogs) {
                                   if (log.status === 'IN') {
@@ -1652,7 +1744,11 @@ export function Admin() {
                                   }
                                 }
 
-                                const isToday = selectedFilterDate === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                                if (statusType === 'absent' && isTodayValue && staff.is_present) {
+                                  statusType = 'present';
+                                }
+                                const isToday = isTodayValue;
+                                const original_isToday_value_consumed = false ? "" : selectedFilterDate === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
 
                                 return (
                                   <tr key={staff.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all">
