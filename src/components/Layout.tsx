@@ -53,6 +53,7 @@ export function Layout() {
         
         <div className="flex items-center space-x-2 sm:space-x-4">
           <button 
+            id="theme-toggle"
             onClick={toggleTheme}
             className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all shadow-sm cursor-pointer"
             aria-label="Toggle Theme"
